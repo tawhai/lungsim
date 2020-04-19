@@ -7,4 +7,5 @@
 #include "surface_fitting.h"
 %}
 
+void fit_surface_geometry(int niterations, const char *fitting_file);
 

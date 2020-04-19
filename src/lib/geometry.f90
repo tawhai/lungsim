@@ -1005,13 +1005,18 @@ contains
     sub_name = 'define_data_geometry'
     call enter_exit(sub_name,1)
     
+    if(index(datafile, ".ipdata")> 0) then !full filename is given
+       readfile = datafile
+    else ! need to append the correct filename extension
+       readfile = trim(datafile)//'.ipdata'
+    endif
+    
+    open(10, file=readfile, status='old')
+    read(unit=10, fmt="(a)", iostat=ierror) buffer
+
     !set the counted number of data points to zero
     ncount = 0
-    
-    !readfile = trim(datafile)//'.ipdata'
-    open(10, file=datafile, status='old')
-    read(unit=10, fmt="(a)", iostat=ierror) buffer
-    
+
 !!! first run through to count the number of data points
     read_line_to_count : do
        read(unit=10, fmt="(a)", iostat=ierror) buffer
@@ -1029,8 +1034,7 @@ contains
     allocate(data_weight(3,num_data))
     
 !!! read the data point information
-    !readfile = trim(datafile)//'.ipdata'
-    open(10, file=datafile, status='old')
+    open(10, file=readfile, status='old')
     read(unit=10, fmt="(a)", iostat=ierror) buffer
     
     !set the counted number of data points to zero

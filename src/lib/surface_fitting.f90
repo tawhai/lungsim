@@ -1,9 +1,10 @@
 module surface_fitting
 
   use arrays
+  use diagnostics
   use geometry
   use other_consts
-  use mesh_functions
+  use mesh_utilities
   use precision
   use solve
 
@@ -29,20 +30,19 @@ contains
 !!! ##########################################################################      
 
   subroutine fit_surface_geometry(niterations,fitting_file)
+    !*fit_surface_geometry:* completes 'niterations' of geometry fitting to a  
+    ! surface, via minimising the least squares distance between a list of 
+    ! data points (3D RC coordinates) and a surface mesh (assumed bi-cubic 
+    ! Hermite only). 'fitting_file' lists the nodes/derivatives that are fixed,
+    !  and any mapping of nodes and/or derivatives
+    !DEC$ ATTRIBUTES DLLEXPORT,ALIAS:"SO_FIT_SURFACE_GEOMETRY" :: FIT_SURFACE_GEOMETRY
 
-!!! completes 'niterations' of geometry fitting to a surface, via minimising 
-!!! the least squares distance between a list of data points (3D RC coordinates)
-!!! and a surface mesh (assumed bi-cubic Hermite only). 'fitting_file' lists
-!!! the nodes/derivatives that are fixed, and any mapping of nodes and/or
-!!! derivatives
-
-!!! dummy arguments
     integer,intent(in) :: niterations             ! user-specified number of fitting iterations
     character(len=255),intent(in) :: fitting_file ! file that lists versions/mapping/BCs
-!!! local variables
+    ! Local variables
     integer  :: nfit,nk,NOT_1,NOT_2,np,num_depvar,nv,ny_max
     logical :: first = .true.
-!!! local allocatable arrays
+    ! local allocatable arrays
     integer,allocatable :: data_elem(:)              
     integer,allocatable :: data_on_elem(:,:)     ! list of data closest to elements
     integer,allocatable :: elem_list(:)          ! list of elements in fit (all)
@@ -57,6 +57,12 @@ contains
     real(dp),allocatable :: sobelov_wts(:,:)     ! Scaling factor for, and Sobelov weights
     logical,allocatable :: fix_bcs(:)            ! logical for boundary conditions
 
+    character(len=60) :: sub_name
+    
+    ! --------------------------------------------------------------------------
+
+    sub_name = 'fit_surface_geometry'
+    call enter_exit(sub_name,1)
 
 !!! allocate element-sized arrays
     allocate(elem_list(0:num_elems_2d))
@@ -70,15 +76,9 @@ contains
     data_elem = 0
 
 !!! allocate dependent variable arrays
-    ny_max = 0
-    do np = 1,num_nodes_2d
-       do nv = 1,node_versn_2d(np)
-          ny_max = ny_max+1
-       enddo
-    enddo
-    ny_max = ny_max*num_nodes_2d*num_fit*num_deriv  ! nodes * coordinates * #derivatives+1
+    ny_max = sum(node_versn_2d(:))*num_nodes_2d*num_fit*num_deriv  ! nodes * coordinates * #derivatives+1
     allocate(nynr(0:ny_max))
-    allocate(npny(0:6,ny_max))
+    allocate(npny(1:6,ny_max))
     allocate(nynp(num_deriv,nmax_versn,num_fit,num_nodes_2d))
     allocate(fix_bcs(ny_max))
 
@@ -95,9 +95,6 @@ contains
 !!! read 'fitting_file' to define the fitting constraints. set up mapping
 !!! arrays, dependent variable arrays, Sobelov smoothing weights (hardcoded)
     write(*,'('' Define fitting problem '')')
-!    call define_geometry_fit(elem_list,npny,num_depvar,nynp,nynr,nyny,&
-!         cyny,sobelov_wts,fit_soln,fitting_file,fix_bcs)
-
     do nfit = 1,niterations ! user-defined number of iterations
        call define_geometry_fit(elem_list,npny,num_depvar,nynp,nynr,nyny,&
             cyny,sobelov_wts,fit_soln,fitting_file,fix_bcs)
@@ -105,7 +102,7 @@ contains
 !!!    solve for new nodal coordinates and derivatives
        write(*,'('' Solve fitting problem '')')
        call solve_geometry_fit(data_on_elem,ndata_on_elem,num_depvar,&
-            elem_list,not_1,not_2,npny,nynp,nynr,&
+            elem_list,not_1,not_2,npny,nynp,&
             nyny,data_xi,cyny,sobelov_wts,fit_soln,fix_bcs)
 !!!    update the scale factors for new geometry if NOT unit scale factors
 !       write(*,'('' Update scale factors '')')
@@ -130,6 +127,8 @@ contains
     deallocate(nyny)
     deallocate(fix_bcs)
 
+    call enter_exit(sub_name,2)
+    
   end subroutine fit_surface_geometry
 
 !!! ##########################################################################      
@@ -142,7 +141,7 @@ contains
 !!! dependent variable-to-mapping arrays  
   
 !!! dummy arguments
-    integer :: elem_list(0:),npny(0:,:),num_depvar,nynp(:,:,:,:),nynr(0:)
+    integer :: elem_list(0:),npny(:,:),num_depvar,nynp(:,:,:,:),nynr(0:)
     integer,allocatable :: nyny(:,:)
     real(dp) :: sobelov_wts(0:,:)
     real(dp),allocatable :: cyny(:,:),fit_soln(:,:,:,:)
@@ -162,27 +161,21 @@ contains
     !***Set up dependent variable interpolation information
     fit_soln = node_xyz_2d    
  
-!!! the following not correct because it refers to the global element #s 
-!!! use elem_list because we might want to fit only some of the elements  
-!    elem_list(1:num_elems_2d) = elems_2d(1:num_elems_2d)
     forall (i=1:num_elems_2d) elem_list(i) = i
     elem_list(0) = num_elems_2d
 
     ! *** Specify smoothing constraints on each element
-    do L=1,elem_list(0)
-       ne=elem_list(L)
-       sobelov_wts(0,ne) = 1.0_dp 
-       sobelov_wts(1,ne) = 1.0_dp !the scaling factor for the Sobolev weights
-       !  The 5 weights on derivs wrt Xi_1/_11/_2/_22/'_12 are:
-       sobelov_wts(2,ne) = 1.0e-4_dp !weight for deriv wrt Xi_1
-       sobelov_wts(3,ne) = 2.0e-3_dp
-       sobelov_wts(4,ne) = 1.0e-4_dp
-       sobelov_wts(5,ne) = 2.0e-3_dp
-       sobelov_wts(6,ne) = 5.0e-3_dp
-    enddo !L
+    sobelov_wts(0,:) = 1.0_dp 
+    sobelov_wts(1,:) = 1.0_dp !the scaling factor for the Sobolev weights
+    !  The 5 weights on derivs wrt Xi_1/_11/_2/_22/'_12 are:
+    sobelov_wts(2,:) = 1.0e-2_dp !weight for deriv wrt Xi_1
+    sobelov_wts(3,:) = 0.4_dp
+    sobelov_wts(4,:) = 1.0e-2_dp
+    sobelov_wts(5,:) = 0.4_dp
+    sobelov_wts(6,:) = 0.8_dp
     
     !*** Calculate ny maps
-    call calculate_ny_maps(npny,num_depvar,nynp,nynr)
+    call calculate_ny_maps(npny,num_depvar,nynp)
     
     fix_bcs = .false. !initialise, default
    
@@ -191,7 +184,7 @@ contains
     read_number_of_fixed : do
        read(unit=IPFILE, fmt="(a)", iostat=ierror) string
        if(index(string, "fixed")> 0) then
-          call get_final_integer(string,number_of_fixed)
+          number_of_fixed = get_final_integer(string)
           exit read_number_of_fixed
        endif
     end do read_number_of_fixed
@@ -210,9 +203,6 @@ contains
 
        string = adjustl(string(iend:i_ss_end)) ! get chars beyond " " and remove the leading blanks
        read (string(ibeg:i_ss_end), '(i6)' ) nk
-
-!       string = adjustl(string(iend:i_ss_end)) ! get chars beyond " " and remove the leading blanks
-!       read (string(ibeg:i_ss_end), '(i6)' ) nk
 
        nk=nk+1 !read in 0 for coordinate, 1 for 1st deriv, 2 for 2nd deriv
        if(nv_fix.eq.0)then ! do for all versions
@@ -282,38 +272,18 @@ contains
   end subroutine gauss1
   
 !!! ##########################################################################      
-
-  function getnyr(npny,ny,nynp)
-    
-!!! returns the dependent variable number
-!!! dummy arguments
-    integer :: npny(0:,:),ny,nynp(:,:,:,:)
-!!! local variables
-    integer :: nh,nk,np,nv
-    integer :: getnyr
-    
-    getnyr = 0
-    nk = npny(1,ny)
-    nv = npny(2,ny)
-    nh = npny(3,ny)
-    np = npny(4,ny)
-    getnyr = nynp(nk,nv,nh,np)
-    
-  end function getnyr
-  
-!!! ##########################################################################      
   
   subroutine globalf(nony,not_1,not_2,npny,nyno,nynp,nyny,cony,cyno,cyny,fix_bcs)
 
 !!! calculates the mapping arrays nyno/nony/cyno/cony
 
 !!! dummy arguments
-    integer :: nony(0:,:,:),not_1,not_2,npny(0:,:),nyno(0:,:,:),nynp(:,:,:,:),nyny(0:,:)
-    real(dp) :: cony(0:,:,:),cyno(0:,:,:),cyny(0:,:)
+    integer :: nony(0:,:),not_1,not_2,npny(:,:),nyno(0:,:,:),nynp(:,:,:,:),nyny(0:,:)
+    real(dp) :: cony(:),cyno(0:,:),cyny(0:,:)
     logical :: fix_bcs(:)
 !!! local variables
-    integer :: nh,nv,nk,no,no_tot(2),np,nrc,ny,nyy(2),nyo,nyr,nyr2,nyy2(2),ny2
-    real(dp) :: COY,RATIO
+    integer :: nh,nv,nk,no,no_tot(2),np,nrc,ny,nyo,nyr,nyr2,nyy2(2),ny2
+    real(dp) :: RATIO
     logical :: done
     
 !!!***  Initialise mapping arrays
@@ -324,16 +294,14 @@ contains
     no_tot = 0
     
 !!!*** Calculate mapping arrays
-    do np=1,num_nodes_2d
-       do nh=1,num_fit
-          do nv=1,node_versn_2d(np)
-             do nk=1,num_deriv
-                ny=nynp(nk,nv,nh,np)
+    do np = 1,num_nodes_2d
+       do nh = 1,num_fit
+          do nv = 1,node_versn_2d(np)
+             do nk = 1,num_deriv
+                ny = nynp(nk,nv,nh,np)
                 if(.not.fix_bcs(ny)) then 
                    ! variable needs to be solved for
                    done = .false.
-                   nyy(1) = nynp(nk,nv,nh,np) !global row #
-                   nyy(2) = ny !global variable #
                    ny2 = ny !the default
                    if(nyny(0,ny).ne.0) then ! a special mapping
                       ny2 = nyny(1,ny)
@@ -346,36 +314,30 @@ contains
                       else if(fix_bcs(ny2)) then
                          fix_bcs(ny) = .TRUE.
                       else            ! no mapping
-                         nyy2(1) = getnyr(npny,ny2,nynp) !row#
-                         nyy2(2) = ny2 !global col#
-                         do nrc=1,2 !nrc=1,2 local row and local column
-                            nyr = nyy(nrc)
-                            nyr2 = nyy2(nrc)
-                            nony(0,nyr,nrc) = 1
-                            no = nony(1,nyr2,nrc)
-                            nony(1,nyr,nrc) = no
-                            COY = RATIO*cony(1,nyr2,nrc)
-                            cony(1,nyr,nrc) = COY
-!                            write(*,*) np,nh,nv,nk,ny,ny2,nrc
+                         do nrc = 1,1 ! nrc = 1,2 local row and local column
+                            nyr = ny
+                            nony(0,ny) = 1
+                            no = nony(1,ny2)
+                            nony(1,ny) = no
+                            cony(ny) = RATIO*cony(ny2)
                             nyo = nyno(0,no,nrc)+1
                             nyno(0,no,nrc) = nyo
-                            nyno(nyo,no,nrc) = nyr
-                            cyno(nyo,no,nrc) = COY
+                            nyno(nyo,no,nrc) = ny
+                            cyno(nyo,no) = RATIO*cony(ny2)
                          enddo !nrc
                       endif !ny2=0/fix_bcs
                    endif !ny.NE.ny2
                    
                    if(.not.done) then
-                      do nrc=1,2 !rows and columns
+                      do nrc=1,1 !rows and columns
                          no_tot(nrc) = no_tot(nrc)+1
-                         nony(0,nyy(nrc),nrc) = 1
-                         nony(1,nyy(nrc),nrc) = no_tot(nrc)
-                         cony(0,nyy(nrc),nrc) = 0.0_dp
-                         cony(1,nyy(nrc),nrc) = 1.0_dp
+                         nony(0,ny) = 1
+                         nony(1,ny) = no_tot(nrc)
+                         cony(ny) = 1.0_dp
                          nyno(0,no_tot(nrc),nrc) = 1
-                         nyno(1,no_tot(nrc),nrc) = nyy(nrc)
-                         cyno(0,no_tot(nrc),nrc) = 0.0_dp
-                         cyno(1,no_tot(nrc),nrc) = 1.0_dp
+                         nyno(1,no_tot(nrc),nrc) = ny
+                         cyno(0,no_tot(nrc)) = 0.0_dp
+                         cyno(1,no_tot(nrc)) = 1.0_dp
                       enddo !nrc
                    endif !not done
                 endif !fix
@@ -385,8 +347,9 @@ contains
     enddo !np
     
     NOT_1 = no_tot(1)
-    NOT_2 = no_tot(2)
-    
+    NOT_2 = no_tot(1)
+    nyno(:,:,2) = nyno(:,:,1)
+
   end subroutine globalf
 
 !!! ##########################################################################      
@@ -472,7 +435,6 @@ contains
           npn(2)=2
           nodes_in_line(2,1,num_lines_2d)=elem_nodes_2d(1,ne) !records 1st node in line
           nodes_in_line(3,1,num_lines_2d)=elem_nodes_2d(2,ne) !records 2nd node in line
-          !        write(*,*) 'line in -2 for ne',ne,num_lines_2d,' nodes',npne(1,ne),npne(2,ne)
           nodes_in_line(1,0,num_lines_2d)=1 !Xi-direction of line segment num_lines_2d
           do nj=1,3
              nodes_in_line(1,nj,num_lines_2d)=4 !type of basis function (1 for linear,4 for cubicHermite)
@@ -484,7 +446,6 @@ contains
           !WARNING:: this only works if all Xi directions are consistent!!!!
           ne_adjacent=elem_cnct_2d(-2,1,ne)
           elem_lines_2d(1,ne)=elem_lines_2d(2,ne_adjacent)
-          !        write(*,*) 'adjacent in -2',ne,ne_adjacent,elem_lines_2d(1,ne)
        endif
        
        num_lines_2d=num_lines_2d+1
@@ -496,7 +457,6 @@ contains
        npn(2)=4
        nodes_in_line(2,1,num_lines_2d)=elem_nodes_2d(2,ne) !records 1st node in line
        nodes_in_line(3,1,num_lines_2d)=elem_nodes_2d(4,ne) !records 2nd node in line
-       !     write(*,*) 'line in +2 for ne',ne,num_lines_2d,' nodes',npne(2,ne),npne(4,ne)
        nodes_in_line(1,0,num_lines_2d)=2 !Xi-direction of line segment num_lines_2d
        do nj=1,3
           nodes_in_line(1,nj,num_lines_2d)=4 !type of basis function (1 for linear,4 for cubicHermite)
@@ -630,13 +590,12 @@ contains
        read(unit=IPFILE, fmt="(a)", iostat=ierror) string
        ! read line containing "Number of mappings"
        if(index(string, "mappings")> 0) then
-           call get_final_integer(string,number_of_maps)
+           number_of_maps = get_final_integer(string)
           exit read_number_of_mappings
        endif
     end do read_number_of_mappings
     
     ! allocate memory for dependent variable mapping arrays
-    write(*,*) 'Number of dependent variables =',num_depvar,'; squared =',num_depvar**2
     if(.not.allocated(cyny)) allocate(cyny(0:number_of_maps,num_depvar)) 
     if(.not.allocated(nyny)) allocate(nyny(0:number_of_maps,num_depvar))
     nyny = 0       ! initialise depvar to depvar mapping
@@ -677,7 +636,6 @@ contains
              cyny(nyny(0,ny),ny) = r_map_coef
              node_xyz_2d(nk_m,nv_m,nj_m,np_m) = node_xyz_2d(nk_t,nv_t,nj_t,np_t)*r_map_coef
              fit_soln(nk_m,nv_m,nj_m,np_m) = node_xyz_2d(nk_t,nv_t,nj_t,np_t)*r_map_coef
-!             write(*,*) 'mapping ny',ny_t,' to',ny,' with',r_map_coef
           endif ! ny.GT.0
        enddo !nj
     enddo
@@ -699,38 +657,30 @@ contains
           enddo !nv
        enddo !nj
     enddo
-    
+
   end subroutine map_versions
   
 !!! ##########################################################################      
+  
+  subroutine local_dof(n_dof,ne,ny_local,nynp)
 
-  subroutine melgef(LGE2,ne,NHST,nynp)
-
-!!! calculates the row numbers (LGE(*,1)) and column numbers
-!!! (LGE(*,2)) in the matrix for fitting for element variables nhs
-!!! and fit variable njj in region nr.  It also returns the total
-!!! number of element variables NHST(nrc).
-    
-!!! dummy arguments    
-    integer :: LGE2(num_fit*num_deriv_elem,2),ne,NHST(2),nynp(:,:,:,:)
+    integer :: ny_local(:),n_dof,ne,nynp(:,:,:,:)
 !!! local variables
-    integer nh,nk,nn,np,nrc,nv
+    integer nh,nk,nn,np,nv
     
-    do nrc=1,2
-       NHST(nrc)=0
-       do nh=1,num_fit
-          do nn=1,num_elem_nodes !nodal variables
-             np=elem_nodes_2d(nn,ne)
-             nv=elem_versn_2d(nn,ne)
-             do nk=1,num_deriv
-                NHST(nrc)=NHST(nrc)+1
-                LGE2(NHST(nrc),nrc)=nynp(nk,nv,nh,np)
-             enddo !nk
-          enddo !nn
-       enddo !nhj
-    enddo !nrc
+    n_dof = 0
+    do nh = 1,num_fit
+       do nn = 1,num_elem_nodes !nodal variables
+          np = elem_nodes_2d(nn,ne)
+          nv = elem_versn_2d(nn,ne)
+          do nk = 1,num_deriv
+             n_dof = n_dof + 1
+             ny_local(n_dof) = nynp(nk,nv,nh,np)
+          enddo !nk
+       enddo !nn
+    enddo !nhj
     
-  end subroutine melgef
+  end subroutine local_dof
 
 !!! ##########################################################################      
 
@@ -989,14 +939,14 @@ contains
 !!! local variables
     integer :: nh,nk,nn,np,ns,nv
     
-    do nh=1,num_fit
-       ns=0
-       do nn=1,num_elem_nodes
-          np=elem_nodes_2d(nn,ne)
-          nv=elem_versn_2d(nn,ne)
-          do nk=1,num_deriv
-             ns=ns+1
-             fit_soln_local(ns,nh)=fit_soln(nk,nv,nh,np)*scale_factors_2d(ns,ne)
+    do nh = 1,num_fit
+       ns = 0
+       do nn = 1,num_elem_nodes
+          np = elem_nodes_2d(nn,ne)
+          nv = elem_versn_2d(nn,ne)
+          do nk = 1,num_deriv
+             ns = ns+1
+             fit_soln_local(ns,nh) = fit_soln(nk,nv,nh,np)*scale_factors_2d(ns,ne)
           enddo !nk
        enddo !nn
     enddo !nhx
@@ -1004,36 +954,190 @@ contains
   end subroutine zpze_fit
   
 !!! ##########################################################################      
+
+  subroutine make_element_matrices(ne,fit_soln_local,fit_soln, &
+       data_on_elem,ndata_on_elem,data_xi,ER,ES,sobelov_wts)
+
+!!!    Evaluates element rhs, ER(ns), in calculation of least squares
+!!!    fit of linear field variables, defined by nodal values
+!!!    node_xyz_2d(nk,nv,nj,np), to the set of data values data_xyz(nj,nd) with
+!!!    weights data_weight(nj,nd) at local coordinate values data_xi(ni,nd).
+
+!!!    ZDES evaluates element stiffness matrix ES(ms,ns) in calculation
+!!!    of least squares fit of linear field variables, defined by nodal
+!!!    values node_xyz_2d(nk,nv,nj,np), to the set of data values XD(nj,nd) with
+!!!    weights data_weight(nj,nd) at local coordinate values data_xi(ni,nd), where
+!!!    nj=NJO.
+
+!!! dummy arguments
+    integer :: data_on_elem(:,:),ndata_on_elem(:),ne
+    real(dp) :: data_xi(:,:),ER(:),ES(:,:),sobelov_wts(0:,:),&
+         fit_soln(:,:,:,:),fit_soln_local(:,:)
+!!! local variables
+    integer nd,nde,ng,nh,nh1,nh2,nhj1,nhj2,nhs1,nhs1_for_nhj1,nhs2,nk,nk1,nk2, &
+         nn,nn1,nn2,np,ns,ns1,ns2,nu,nv
+    real(dp) :: SUM1,SUM2,SUM3,SUM4,X,ZDL(3,nmax_data_elem)
+    real(dp) :: PD(num_deriv_elem),PG(16,6,9),WG(9)
+    real(dp),dimension(3,nmax_data_elem) :: WDL
+    real(dp),dimension(2,nmax_data_elem) :: XIDL
+    
+    WG = [7.7160493827160628e-2_dp, 0.12345679012345677_dp, 7.7160493827160628e-2_dp,&
+         0.12345679012345677_dp, 0.19753086419753044_dp, 0.12345679012345677_dp,&
+         7.7160493827160628e-2_dp, 0.12345679012345677_dp, 7.7160493827160628e-2_dp]
+
+    ER = 0.0_dp
+    ES = 0.0_dp
+
+    call gauss1(PG)
+
+    do nh = 1,num_fit
+       ns = 0
+       do nn = 1,num_elem_nodes
+          np = elem_nodes_2d(nn,ne)
+          nv = elem_versn_2d(nn,ne)
+          do nk = 1,num_deriv
+             ns = ns+1
+             fit_soln_local(ns,nh) = fit_soln(nk,nv,nh,np)*scale_factors_2d(ns,ne)
+          enddo !nk
+       enddo !nn
+    enddo !nhx
+    
+!!! evaluate the element matrix ER
+    
+    do nde = 1,ndata_on_elem(ne) ! for each data point on the element
+       nd = data_on_elem(ne,nde) ! the data point number
+       XIDL(1:2,nde) = data_xi(1:2,nd)
+       ZDL(1:3,nde) = data_xyz(1:3,nd)
+       WDL(1:3,nde) = data_weight(1:3,nd)
+    enddo !nde
+    
+    nhs1=0
+    do nh = 1,num_fit
+       do nde = 1,ndata_on_elem(ne)
+          X = PXI(1,XIDL(1:2,nde),fit_soln_local(1:num_deriv_elem,nh))
+          ZDL(nh,nde) = ZDL(nh,nde)-X
+       enddo !nde
+       ns1 = 0
+       do nn1 = 1,num_elem_nodes
+          do nk1 = 1,num_deriv
+             nhs1 = nhs1+1
+             ns1 = ns1+1
+             SUM1 = 0.0_dp
+             do nde = 1,ndata_on_elem(ne)
+                SUM1 = SUM1 + PSI1(1,nk1,nn1,XIDL(1:2,nde))*ZDL(nh,nde)*WDL(nh,nde)
+             enddo !nde
+             SUM2 = 0.0_dp
+             do ng = 1,num_gauss
+                SUM3 = 0.0_dp
+                do nu = 2,6 !for 2d elements
+                   SUM4 = 0.0_dp
+                   do ns2 = 1,num_deriv_elem
+                      SUM4 = SUM4+fit_soln_local(ns2,nh)*PG(ns2,nu,ng)
+                   enddo !ns2
+                   SUM3 = SUM3+SUM4*PG(ns1,nu,ng)*sobelov_wts(nu,ne) !*sobelov_wts(1,ne)
+                enddo !nu
+                SUM2 = SUM2-SUM3*WG(ng) !*RG(ng)
+             enddo !ng
+             ER(nhs1) = ER(nhs1)+(SUM1+SUM2*sobelov_wts(0,ne))*scale_factors_2d(ns1,ne)
+          enddo !nk1
+       enddo !nn1
+    enddo !nhj1
+    
+!!! evaluate the element matrix ES
+    
+    ES = 0.0_dp
+    nhs1 = 0
+    ! for each of the 3 dependent variables to be fitted 
+    do nhj1 = 1,num_fit !nhj are vars for the fit problem njj
+       nh1 = nhj1
+       nhs1_for_nhj1 = nhs1
+       do nde = 1,ndata_on_elem(ne)
+          nhs1 = nhs1_for_nhj1
+          ns1 = 0
+          do nn1 = 1,num_elem_nodes
+             do nk1 = 1,num_deriv
+                nhs1 = nhs1+1
+                ns1 = ns1+1
+                PD(ns1) = PSI1(1,nk1,nn1,XIDL(1:2,nde))
+             enddo !nk1
+          enddo !nn1
+          nhs1 = nhs1_for_nhj1
+          do ns1 = 1,num_deriv_elem
+             nhs1 = nhs1+1
+             nhs2 = 0
+             do nhj2 = 1,num_fit !columns
+                nh2 = nhj2
+                do ns2 = 1,num_deriv_elem
+                   nhs2 = nhs2+1
+                   if(nhj2.EQ.nhj1) then !to avoid coupling for now
+                      ES(nhs1,nhs2) = ES(nhs1,nhs2)+PD(ns1)*PD(ns2) &
+                           *WDL(nh1,nde)*scale_factors_2d(ns1,ne)*scale_factors_2d(ns2,ne)
+                   endif !nhj2=nhj1
+                enddo !ns2
+             enddo !nhj2
+          enddo !ns1
+       enddo !nde
+       
+       ns1 = 0
+       nhs1 = nhs1_for_nhj1
+       do nn1 = 1,num_elem_nodes
+          do nk1 = 1,num_deriv
+             nhs1 = nhs1+1
+             ns1 = ns1+1
+             nhs2 = 0
+             do nhj2 = 1,num_fit !columns
+                ns2 = 0
+                do nn2 = 1,num_elem_nodes
+                   do nk2 = 1,num_deriv
+                      nhs2 = nhs2+1
+                      ns2 = ns2+1
+                      if(nhj2.EQ.nhj1) then !to avoid coupling for now
+                         SUM2 = 0.0_dp
+                         do ng = 1,num_gauss
+                            SUM3 = 0.0_dp
+                            do nu = 2,6
+                               SUM3 = SUM3+ &
+                                    PG(ns1,nu,ng)*PG(ns2,nu,ng)*sobelov_wts(nu,ne)
+                            enddo !nu
+                            SUM2 = SUM2+SUM3*WG(ng)
+                         enddo !ng
+                         ES(nhs1,nhs2) = ES(nhs1,nhs2)+(SUM2*sobelov_wts(0,ne))* &
+                              scale_factors_2d(ns1,ne)*scale_factors_2d(ns2,ne)
+                      endif !nhj2=nhj1
+                   enddo !nk2
+                enddo !nn2
+             enddo !nhj2
+          enddo !nk1
+       enddo !nn1
+    enddo !nhj1
+    
+  end subroutine make_element_matrices
   
-  subroutine calculate_ny_maps(npny,num_depvar,nynp,nynr)
+!!! ##########################################################################      
+  
+  subroutine calculate_ny_maps(npny,num_depvar,nynp)
   
 !!! dummy arguments
-    integer :: npny(0:,:),num_depvar,nynp(:,:,:,:),nynr(0:)
+    integer :: npny(:,:),num_depvar,nynp(:,:,:,:)
 !!! local variables
     integer nh,nk,np,nv,ny
     
     !***  Initialise mapping arrays 
-    nynp=0
-    npny=0
-    nynr=0
+    nynp = 0
+    npny = 0
     
     !***  Set up mapping arrays
     ny = 0
-    nynr(0)=0
-    do nh=1,num_fit
-       do np=1,num_nodes_2d
-          do nv=1,node_versn_2d(np)
-             do nk=1,num_deriv
-                ny=ny+1
-                nynr(0)=nynr(0)+1
-                nynr(nynr(0))=ny
+    do nh = 1,num_fit
+       do np = 1,num_nodes_2d
+          do nv = 1,node_versn_2d(np)
+             do nk = 1,num_deriv
+                ny = ny+1
                 nynp(nk,nv,nh,np) = ny
-                npny(0,ny)=1 !mesh dof is node based
-                npny(1,ny)=nk
-                npny(2,ny)=nv
-                npny(3,ny)=nh
-                npny(4,ny)=np
-                npny(5,ny)=1
+                npny(1,ny) = nk
+                npny(2,ny) = nv
+                npny(3,ny) = nh
+                npny(4,ny) = np
              enddo !nk
           enddo !nv
        enddo !np
@@ -1058,7 +1162,7 @@ contains
     read_number_of_elements : do
        read(unit=10, fmt="(a)", iostat=ierror) ctemp1
        if(index(ctemp1, "elements")> 0) then
-          call get_final_integer(ctemp1,number_of_elements)
+          number_of_elements = get_final_integer(ctemp1)
           exit read_number_of_elements
        endif
     end do read_number_of_elements
@@ -1074,7 +1178,7 @@ contains
        !.......read element number
        read(unit=10, fmt="(a)", iostat=ierror) ctemp1
        if(index(ctemp1, "Element")> 0) then
-          call get_final_integer(ctemp1,ne) !get element number
+          ne = get_final_integer(ctemp1) !get element number
           elems_2d(noelem)=ne
           noelem=noelem+1
           
@@ -1089,9 +1193,9 @@ contains
                       read(unit=10, fmt="(a)", iostat=ierror) ctemp1 !contains version# for njj=1
                       read(unit=10, fmt="(a)", iostat=ierror) ctemp1 !contains version# for njj=1
                       read(unit=10, fmt="(a)", iostat=ierror) ctemp1 !contains version# for njj=1
-                      call get_final_integer(ctemp1,elem_versn_2d(nn,ne)) !get version#
+                      elem_versn_2d(nn,ne) = get_final_integer(ctemp1) !get version#
                    else
-                      elem_versn_2d(nn,ne)= 1
+                      elem_versn_2d(nn,ne) = 1
                    endif !nversions
                 enddo !nn
                 exit read_element_nodes
@@ -1150,9 +1254,6 @@ contains
 !          enddo !nj
 !          if(data_elem(nd).eq.0.or.sqnd.lt.sq(nd)) then
 !             data_xi(1:2,nd) = xi(1:2)
-!             if(nd.eq.3976)then
-!                write(*,*) 'initial closest=',ne
-!             endif
 !             data_elem(nd) = ne
 !             sq(nd) = sqnd
 !          endif
@@ -1272,27 +1373,27 @@ contains
 !!! ##########################################################################      
 
   subroutine solve_geometry_fit(data_on_elem,ndata_on_elem,num_depvar,&
-       elem_list,not_1,not_2,npny,nynp,nynr,nyny,data_xi,cyny,sobelov_wts,&
+       elem_list,not_1,not_2,npny,nynp,nyny,data_xi,cyny,sobelov_wts,&
        fit_soln,fix_bcs)
 
 !!! dummy arguments
     integer :: data_on_elem(:,:),ndata_on_elem(:),not_1,not_2,num_depvar,&
-         elem_list(0:),npny(0:,:),nynp(:,:,:,:),nynr(0:),nyny(0:,:)
+         elem_list(0:),npny(:,:),nynp(:,:,:,:),nyny(0:,:)
     real(dp) :: data_xi(:,:),cyny(0:,:),sobelov_wts(0:,:),fit_soln(:,:,:,:)
     logical :: fix_bcs(:)
 !!! local variables
-    integer :: l,LGE2(3*16,2),ne,nh,nhs1,nhs2,NHST(2), &
+    integer :: l,ny_local(3*16),n_dof,ne,nh,nh1,nh2,nhs1,nhs2, &
          nk,no1,no2,no_nynr1,no_nynr2,noy1,noy2,np,nv,ny1,ny2,ny3,nyo1,nz,nzz
-    integer,allocatable :: nony(:,:,:)
+    integer,allocatable :: nony(:,:)
     integer,allocatable :: nyno(:,:,:)
     real(dp) :: co1,co2,ER(num_fit*num_deriv_elem),ES(3*16,3*16),&
-         fit_soln_local(16,3),PG(16,6,9),WG(9)
-    real(dp),allocatable :: cony(:,:,:)
-    real(dp),allocatable :: cyno(:,:,:)
+         fit_soln_local(16,3)
+    real(dp),allocatable :: cony(:)
+    real(dp),allocatable :: cyno(:,:)
     real(dp),allocatable :: GR(:)      ! right-hand-side vector
     real(dp),allocatable :: GRR(:)     ! reduced right-hand-side vector
     real(dp),allocatable :: incr_soln(:)         ! current solution returned from solver
-    logical :: FIRST_A,UPDATE_MATRIX
+    logical :: FIRST_A
 
     ! make all of these allocatable!
     real(dp),dimension(nsize_gkk) :: GKK
@@ -1300,56 +1401,45 @@ contains
 ! doesn't like allocating these! gives different answer for errors
 !    real(dp),allocatable :: GKK(:)
 !    real(dp),allocatable :: GK(:)
-    real(dp),dimension(3,nmax_data_elem) :: WDL
-    real(dp),dimension(2,nmax_data_elem) :: XIDL
   
     
-    WG = [7.7160493827160628e-2_dp, 0.12345679012345677_dp, 7.7160493827160628e-2_dp,&
-         0.12345679012345677_dp, 0.19753086419753044_dp, 0.12345679012345677_dp,&
-         7.7160493827160628e-2_dp, 0.12345679012345677_dp, 7.7160493827160628e-2_dp]
-
     allocate(incr_soln(num_depvar))
-    allocate(nony(0:1,num_depvar,2))
+    allocate(nony(0:1,num_depvar))
     allocate(nyno(0:5,num_depvar,2))
-    allocate(cony(0:1,num_depvar,2))
-    allocate(cyno(0:5,num_depvar,2))
+    allocate(cony(num_depvar))
+    allocate(cyno(0:5,num_depvar))
     allocate(GR(num_depvar))
     allocate(GRR(num_depvar))
 !    allocate(GK(num_depvar*num_depvar))
 !    allocate(GKK(num_depvar*num_depvar))
 
-    call gauss1(PG)
-
-    UPDATE_MATRIX=.TRUE.
-    FIRST_A=.TRUE.
+    FIRST_A = .TRUE.
     
-    GR=0.0_dp
+    GR = 0.0_dp
     
-    do l=1,elem_list(0) !loop over elements in the fit
-       ne=elem_list(l)
-       call melgef(LGE2,ne,NHST,nynp)
-       ER=0.0_dp
-       ES=0.0_dp
-       call zpze_fit(ne,fit_soln_local,fit_soln) !gets fit_soln_local for element ne
-       call zder(data_on_elem,ndata_on_elem,ne,data_xi,ER,PG,WDL,WG,&
-            sobelov_wts,XIDL,fit_soln_local) 
-       call zdes(ndata_on_elem,ne,ES,PG,WDL,WG,sobelov_wts,XIDL)
+    do l = 1,elem_list(0) !loop over elements in the fit
+       ne = elem_list(l)
        
-       !*** Assemble element stiffness matrix into global system.
-       do nhs1=1,NHST(1) !3 dependent variables
-          ny1=IABS(LGE2(nhs1,1))
+       call make_element_matrices(ne,fit_soln_local,fit_soln, &
+            data_on_elem,ndata_on_elem,data_xi,ER,ES,sobelov_wts)
+       
+       call local_dof(n_dof,ne,ny_local,nynp)
+
+       ! Assemble element  matrices into global matrices
+       do nh1 = 1,n_dof 
+          ny1 = ny_local(nh1)
           if(ny1.eq.0)then
              write(*,'('' No dependent variable for node in element'',i6,'': are &
                   &you sure you have set up versions correctly?'')') ne
              stop
           endif
-          GR(ny1)=GR(ny1)+ER(nhs1)
-          do nhs2=1,NHST(2) !3 dependent variables
-             ny2=IABS(LGE2(nhs2,2))
-             nz=ny1+(ny2-1)*num_depvar
-             GK(nz)=GK(nz)+ES(nhs1,nhs2)
-          enddo !nhs2
-       enddo !nhs1
+          GR(ny1) = GR(ny1) + ER(nh1)
+          do nh2 = 1,n_dof 
+             ny2 = ny_local(nh2)
+             nz = ny1+(ny2-1)*num_depvar
+             GK(nz) = GK(nz) + ES(nh1,nh2)
+          enddo !nh2
+       enddo !nh1
     enddo !l (ne)
     
     !*** Calculate solution mapping arrays for the current fit variable
@@ -1362,30 +1452,26 @@ contains
     
     !----------------------- generate reduced system -----------------------
     
-    GKK=0.0_dp
-    GRR=0.0_dp
+    GKK = 0.0_dp
+    GRR = 0.0_dp
     
     !*** generate the reduced system of equations
-    do no_nynr1=1,nynr(0) !loop global rows of GK
-       ny1=nynr(no_nynr1) !is row #
-       do noy1=1,nony(0,ny1,1) !loop over #no's attached to ny1
-          no1=nony(noy1,ny1,1) !no# attached to row ny1
-          co1=cony(noy1,ny1,1) !coupling coeff for row mapping
+    do ny1 = 1,num_depvar !loop global rows of GK
+       do noy1 = 1,nony(0,ny1) !loop over #no's attached to ny1
+          no1 = nony(noy1,ny1) !no# attached to row ny1
+          co1 = cony(ny1) !coupling coeff for row mapping
           !                     ie row_no1=a*row_ny1+b*row_ny2
-          GRR(no1)=GRR(no1)+GR(ny1)*co1 !get reduced R.H.S.vector
-          do no_nynr2=1,nynr(0) !loop over #cols of GK
-             ny2=nynr(no_nynr2) !is global variable #
-             ny3=getnyr(npny,ny2,nynp)
+          GRR(no1) = GRR(no1)+GR(ny1)*co1 !get reduced R.H.S.vector
+          do ny2 = 1,num_depvar !loop over #cols of GK
              !local GK var #
-             nz=ny1+(ny3-1)*num_depvar
-             if(nz.NE.0) then
-                do noy2=1,nony(0,ny2,2) !loop over #no's for ny2
-                   no2=nony(noy2,ny2,2) !no# attached to ny2
-                   co2=cony(noy2,ny2,2) !coup coeff col mapping
+             nz = ny1+(ny2-1)*num_depvar
+             if(nz.ne.0) then
+                do noy2 = 1,nony(0,ny2) !loop over #no's for ny2
+                   no2 = nony(noy2,ny2) !no# attached to ny2
+                   co2 = cony(ny2) !coup coeff col mapping
                    !                     i.e. var_no1=a*var_ny1+b*var_ny2
-                   nzz=no1+(no2-1)*NOT_1
-                   write(*,*) 'nzz',nzz
-                   if(nzz.NE.0) GKK(nzz)=GKK(nzz)+GK(nz)*co1*co2
+                   nzz = no1+(no2-1)*NOT_1
+                   if(nzz.ne.0) GKK(nzz) = GKK(nzz)+GK(nz)*co1*co2
                 enddo !noy2
              endif
           enddo !no_nynr2
@@ -1393,20 +1479,16 @@ contains
     enddo !no_nynr1
     
     !-------------- solve reduced system of linear equations ---------------
-    !Commented out since subroutines called further are temporarily unavailable
-    write(*,*) NOT_1,NOT_2, num_depvar, size(GKK), GKK(1:10), size(GRR), GRR(1:10)
-    write(*,*) size(incr_soln), incr_soln(1:10)
-   !pause
-    !call direct_solver(NOT_1,NOT_1,NOT_2,num_depvar,GKK,GRR,incr_soln,FIRST_A)
+    call solve_fit_system(NOT_1,NOT_2,num_depvar,GKK,GRR,incr_soln)
     
-    do no1=1,NOT_2 ! for each unknown
-       do nyo1=1,nyno(0,no1,2)
-          ny1=nyno(nyo1,no1,2) ! the dependent variable number
-          co1=cyno(nyo1,no1,2) ! the weighting for mapped variables
-          nk=npny(1,ny1)     ! derivative number
-          nv=npny(2,ny1)     ! version number
-          nh=npny(3,ny1)     ! dependent variable number
-          np=npny(4,ny1)     ! node number
+    do no1 = 1,NOT_2 ! for each unknown
+       do nyo1 = 1,nyno(0,no1,1)
+          ny1 = nyno(nyo1,no1,1) ! the dependent variable number
+          co1 = cyno(nyo1,no1)   ! the weighting for mapped variables
+          nk = npny(1,ny1)       ! derivative number
+          nv = npny(2,ny1)       ! version number
+          nh = npny(3,ny1)       ! dependent variable number
+          np = npny(4,ny1)       ! node number
           fit_soln(nk,nv,nh,np) = fit_soln(nk,nv,nh,np) + incr_soln(no1)*co1 
           ! current fit solution = previous + increment
        enddo !nyo1
@@ -1653,6 +1735,143 @@ contains
 
 !!! ##########################################################################      
   
+  subroutine solve_fit_system(M,N,num_depvar,A,B,X)
+
+    integer :: M,N,num_depvar
+    real(dp) :: A(:),B(:),X(:)
+!!! local variables
+    integer,allocatable :: pivots(:)
+    
+    allocate(pivots(num_depvar*num_depvar))
+
+    ! LU Decomposition
+    call lu_decomp(M,N,pivots,A)
+    ! Solve the problem
+    X(1:m) = B(1:m)
+    call lu_solve(M,N,pivots,A,X)
+
+    deallocate(pivots)
+    
+  end subroutine solve_fit_system
+  
+!!! ##########################################################################      
+
+  subroutine lu_decomp(M,N,pivots,A)
+
+    integer :: M,N,pivots(:)
+    real(dp) :: A(M, * )
+    integer :: j,j_pivot
+    real(dp),allocatable :: temp_vec(:)
+
+    allocate(temp_vec(M))
+
+    do j = 1, min(M,N)
+       j_pivot = j-1 + indexmax( M-j+1, A(j,j))
+       pivots(j) = j_pivot
+       if(abs(A(j_pivot,j)).gt.zero_tol )then
+          if(j_pivot.ne.j)then
+             ! swap rows a(j,:) and a(j_pivot,:)
+             temp_vec(1:n) = a(j,1:n)
+             a(j,1:n) = a(j_pivot,1:n)
+             a(j_pivot,1:n) = temp_vec(1:n)
+          endif
+          if(j.lt.M) &
+               ! scale vector by a constant (a(j+1,j) by 1/(a(j,j))
+               call scale_row_lu(M-j,1.0_dp/A(j,j),A(j+1,j))
+       endif
+       if(j.lt.MIN(M,N))then
+          ! A = A + x*y'
+          call add_to_row_lu(M,M-j,N-j,A(j+1,j),A(j,j+1),A(j+1,j+1))
+       endif
+    enddo
+
+    deallocate(temp_vec)
+    
+  end subroutine lu_decomp
+
+!!! ##########################################################################      
+
+  subroutine scale_row_lu(n,da,dx)
+
+      real(dp) :: da,dx(*)
+      integer :: i,n
+
+      do i = 1,n
+        dx(i) = da*dx(i)
+     enddo
+     
+   end subroutine scale_row_lu
+
+!!! ##########################################################################      
+
+   subroutine add_to_row_lu(M,maxrow,N,X,Y,A)
+     integer :: M,maxrow,N
+     real(dp) :: A(M,*),X(*),Y(*)
+     integer :: j, JY
+     
+     JY = 1
+     do j = 1, N !n-j
+        if(abs(Y(JY)).gt.zero_tol)then
+           A(1:maxrow,j) = A(1:maxrow,j) - X(1:maxrow)*Y(jy)
+        endif
+        JY = JY + M
+     enddo
+     
+   end subroutine add_to_row_lu
+
+!!! ##########################################################################      
+
+  subroutine lu_solve(M,N,pivots,A,B)
+
+    integer :: M,N,pivots(:)
+    real(dp) :: A(M,*),B(M, * )
+    integer :: i,k,pivot_row
+    real(dp) :: temp
+
+    ! swap row i and pivot_row for each of rows 1..N
+    do i = 1,N
+       pivot_row = pivots(i)
+       if(pivot_row.ne.i)then
+          temp = B(i,1)
+          B(i,1) = B(pivot_row,1)
+          B(pivot_row,1) = temp
+       endif
+    enddo
+    
+    ! Solve L*X = B, overwriting B with X.
+    do k = 1,N
+       if(abs(B(k,1)).gt.zero_tol) &
+            B(k+1:N,1) = B(k+1:N,1) - B(k,1)*A(k+1:N,k)
+    enddo
+
+    ! Solve U*X = B, overwriting B with X.
+    do k = N,1,-1
+       if(abs(B(k,1)).gt.zero_tol ) then
+          B(k,1) = B(k,1)/A(k,k)
+          B(1:k-1,1) = B(1:k-1,1) - B(k,1)*A(1:k-1,k)
+       endif
+    enddo
+
+  end subroutine lu_solve
+
+  function indexmax(n,dx)
+    ! return the index of entry with largest abs value
+    real(dp) :: dx(*),dmax
+    integer :: i,n
+    integer :: indexmax
+     
+    indexmax = 1
+    if(n.gt.1)then
+       dmax = abs(dx(1))
+       do i = 2,n
+          if(abs(dx(i)).gt.dmax)then
+             indexmax = i
+             dmax = abs(dx(i))
+          endif
+       enddo
+    endif
+     
+   end function indexmax
 
 
 end module surface_fitting

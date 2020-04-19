@@ -30,6 +30,7 @@
 
 // define_rad_from_file has an optional argument that C cannot replicate,
 // so we use SWIG to override with a C++ version that can.
+void define_data_geometry(const char *DATAFILE);
 void define_elem_geometry_2d(const char *ELEMFILE, const char *sf_option="arcl");
 void define_node_geometry_2d(const char *NODEFILE);
 void write_elem_geometry_2d(const char *ELEMFILE);
