@@ -31,4 +31,17 @@ contains
 
 !!!############################################################################
 
+  subroutine initialise_fit_mesh_c() bind(C, name="initialise_fit_mesh_c")
+    use surface_fitting, only: initialise_fit_mesh
+    implicit none
+    
+#if defined _WIN32 && defined __INTEL_COMPILER
+    call so_initialise_fit_mesh
+#else
+    call initialise_fit_mesh
+#endif
+
+  end subroutine initialise_fit_mesh_c
+    
+!!!############################################################################
 end module surface_fitting_c

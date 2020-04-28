@@ -253,7 +253,7 @@ contains
           enddo !nj
        endif
        !**               write the element
-       WRITE(10,'(1X,''Element: '',I12,'' 0 0'' )') ne+offset_elem
+       WRITE(10,'(1X,''Element: '',I12,'' 0 0'' )') elems_2d(ne)+offset_elem
        !**                 write the faces
        WRITE(10,'(3X,''Faces: '' )')
 
@@ -263,6 +263,7 @@ contains
        WRITE(10,'(5X,''0 0'',I6)')  elem_lines_2d(2,ne)
 
        !**               write the nodes
+       
        WRITE(10,'(3X,''Nodes:'' )')
 !       WRITE(10,'(4X,16(1X,I12))') (elem_nodes_2d(nn,ne)+offset_node,nn=1,4)
        WRITE(10,'(4X,16(1X,I12))') (nodes_2d(np_index(nn))+offset_node,nn=1,numnodes_ex)

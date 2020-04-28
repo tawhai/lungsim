@@ -33,6 +33,7 @@
 void define_data_geometry(const char *DATAFILE);
 void define_elem_geometry_2d(const char *ELEMFILE, const char *sf_option="arcl");
 void define_node_geometry_2d(const char *NODEFILE);
+void import_node_geometry_2d(const char *NODEFILE);
 void write_elem_geometry_2d(const char *ELEMFILE);
 void write_geo_file(int ntype, const char *GEOFILE);
 void write_node_geometry_2d(const char *NODEFILE);

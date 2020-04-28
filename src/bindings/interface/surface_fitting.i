@@ -8,4 +8,4 @@
 %}
 
 void fit_surface_geometry(int niterations, const char *fitting_file);
-
+void initialise_fit_mesh();

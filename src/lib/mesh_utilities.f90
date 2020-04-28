@@ -116,7 +116,8 @@ contains
     ido = reshape ([1,2,1,2,1,1,2,2],shape(ido))
     NI1 = [1,2,1]
     NNL = reshape([1,2,3,4,1,3,2,4],shape(NNL))
-    
+
+
     if(.not.allocated(scale_factors_2d)) allocate(scale_factors_2d(16,num_elems_2d))
 
     select case (sf_option)
@@ -771,7 +772,6 @@ contains
     num_triangles = count(triangles(:,:).ne.0)/3
 
     forall (i=1:3) cofm_surfaces(i) = sum(vertex_xyz(i,1:num_vertices))/num_vertices
-!    write(*,*) 'cofm',cofm_surfaces
 
 ! check whether the line that joins the centre of mass of the surface mesh and the point
 ! in question crosses ANY face. If it does, then point not inside.

@@ -10,7 +10,7 @@ module surface_fitting
 
   implicit none
 
-  public fit_surface_geometry,pxi
+  public fit_surface_geometry,initialise_fit_mesh, pxi
 
   integer,parameter :: nmax_data_elem = 4000     ! max # data points on an element
   integer,parameter :: nmax_versn = 6            ! max # versions of node (derivative)
@@ -23,11 +23,9 @@ module surface_fitting
 
   integer,parameter :: nsize_gkk = 10000000        ! size of A matrix, until allocation sorted out
 
-  !real(dp),parameter :: loose_tol = 1.0e-6_dp
-
 contains
 
-!!! ##########################################################################      
+!!! ##########################################################################
 
   subroutine fit_surface_geometry(niterations,fitting_file)
     !*fit_surface_geometry:* completes 'niterations' of geometry fitting to a  
@@ -37,7 +35,7 @@ contains
     !  and any mapping of nodes and/or derivatives
     !DEC$ ATTRIBUTES DLLEXPORT,ALIAS:"SO_FIT_SURFACE_GEOMETRY" :: FIT_SURFACE_GEOMETRY
 
-    integer,intent(in) :: niterations             ! user-specified number of fitting iterations
+    integer,intent(in) :: niterations                   ! user-specified number of fitting iterations
     character(len=255),intent(in) :: fitting_file ! file that lists versions/mapping/BCs
     ! Local variables
     integer  :: nfit,nk,NOT_1,NOT_2,np,num_depvar,nv,ny_max
@@ -65,7 +63,7 @@ contains
     call enter_exit(sub_name,1)
 
 !!! allocate element-sized arrays
-    allocate(elem_list(0:num_elems_2d))
+    allocate(elem_list(num_elems_2d))
     allocate(sobelov_wts(0:6,num_elems_2d))
 
 !!! allocate data arrays
@@ -82,10 +80,14 @@ contains
     allocate(nynp(num_deriv,nmax_versn,num_fit,num_nodes_2d))
     allocate(fix_bcs(ny_max))
 
+    write(*,'('' Define boundary conditions and mapping '')')
+    call define_geometry_fit(elem_list,npny,num_depvar,nynp,nynr,nyny,&
+         cyny,sobelov_wts,fit_soln,fitting_file,fix_bcs)
+    
 !!! find the closest surface to each data point, and calculate the Xi
 !!! coordinates of the data point to the surface
     write(*,'('' Calculating normal projections: slow first time '')')
-    call define_xi_closest(data_elem,data_on_elem,ndata_on_elem,data_xi,first)
+    call define_xi_closest(data_elem,data_on_elem,elem_list,ndata_on_elem,data_xi,first)
     first = .false.
     
 !!! list the total error between the data points and the surface
@@ -94,22 +96,23 @@ contains
 
 !!! read 'fitting_file' to define the fitting constraints. set up mapping
 !!! arrays, dependent variable arrays, Sobelov smoothing weights (hardcoded)
-    write(*,'('' Define fitting problem '')')
     do nfit = 1,niterations ! user-defined number of iterations
-       call define_geometry_fit(elem_list,npny,num_depvar,nynp,nynr,nyny,&
-            cyny,sobelov_wts,fit_soln,fitting_file,fix_bcs)
        write(*,'(/'' FITTING ITERATION'',I3)') nfit
 !!!    solve for new nodal coordinates and derivatives
        write(*,'('' Solve fitting problem '')')
        call solve_geometry_fit(data_on_elem,ndata_on_elem,num_depvar,&
             elem_list,not_1,not_2,npny,nynp,&
             nyny,data_xi,cyny,sobelov_wts,fit_soln,fix_bcs)
+       call update_versions(nynp,fit_soln,fix_bcs)
+       !write(*,'('' Update pseudo-landmarks locations '')')
+       call calc_scale_factors_2d('unit')
+!       call update_node_in_line()
 !!!    update the scale factors for new geometry if NOT unit scale factors
 !       write(*,'('' Update scale factors '')')
 !       call update_scale_factor_norm
 !!!    update the data point projections and their Xi coordinates
        write(*,'('' Calculating normal projections '')')
-       call define_xi_closest(data_elem,data_on_elem,ndata_on_elem,data_xi,first)
+       call define_xi_closest(data_elem,data_on_elem,elem_list,ndata_on_elem,data_xi,first)
 !!!    calculated the updated error between data and surface
        write(*,'(/'' CURRENT RMS ERROR FOR ALL DATA:'')') 
        call list_data_error(data_on_elem,ndata_on_elem,data_xi)
@@ -133,6 +136,40 @@ contains
 
 !!! ##########################################################################      
   
+  subroutine initialise_fit_mesh()
+    !*initialise_fit_mesh:* scale and translate the mesh to align with a data
+    ! cloud. uses the centre of mass and the range of data coordinates.
+    !DEC$ ATTRIBUTES DLLEXPORT,ALIAS:"SO_INITIALISE_FIT_MESH" :: INITIALISE_FIT_MESH
+    ! Local variables
+    integer :: i
+    real(dp) :: datacofm(3),meshcofm(3),datarange(3),meshrange(3), &
+         movemesh(3),scalemesh(3)
+    character(len=60) :: sub_name
+    
+    ! --------------------------------------------------------------------------
+
+    sub_name = 'initialise_fit_mesh'
+    call enter_exit(sub_name,1)
+
+    do i = 1,3
+       datacofm(i) = sum(data_xyz(i,:))/real(num_data)
+       datarange(i) = maxval(data_xyz(i,:)) - minval(data_xyz(i,:))
+       meshcofm(i) = sum(node_xyz_2d(1,1,i,:))/real(num_nodes_2d)
+       meshrange(i) = maxval(node_xyz_2d(1,1,i,:)) - minval(node_xyz_2d(1,1,i,:))
+    enddo
+
+    scalemesh = datarange/meshrange
+    movemesh = datacofm - meshcofm * scalemesh
+
+    forall (i=1:3) node_xyz_2d(1,:,i,:) = node_xyz_2d(1,:,i,:) * &
+         scalemesh(i) + movemesh(i)
+
+    call enter_exit(sub_name,2)
+    
+  end subroutine initialise_fit_mesh
+  
+!!! ##########################################################################      
+  
   subroutine define_geometry_fit(elem_list,npny,num_depvar,nynp,nynr,nyny,&
        cyny,sobelov_wts,fit_soln,fitting_file,fix_bcs)
 
@@ -141,19 +178,26 @@ contains
 !!! dependent variable-to-mapping arrays  
   
 !!! dummy arguments
-    integer :: elem_list(0:),npny(:,:),num_depvar,nynp(:,:,:,:),nynr(0:)
+    integer :: elem_list(:),npny(:,:),num_depvar,nynp(:,:,:,:),nynr(0:)
     integer,allocatable :: nyny(:,:)
     real(dp) :: sobelov_wts(0:,:)
     real(dp),allocatable :: cyny(:,:),fit_soln(:,:,:,:)
     character(len=*),intent(in) :: fitting_file
     logical :: fix_bcs(:)
 !!! local variables
-    integer :: i,ibeg,iend,ierror,IPFILE=10,i_ss_end,L,ne,nh,nj,nk,node,np,&
-         np_global,number_of_fixed,nv,nv_fix,ny
-    character(len=132) :: readfile,string
+    integer :: i,ibeg,iend,ierror,IPFILE=10,i_ss_end,L,ne,nh,nj,nk, &
+         node,np,np_global,number_of_maps,number_of_fixed,nv,nv_fix,ny
+    integer,allocatable :: nmap_info(:,:)
+    character(len=300) :: readfile,string,sub_string
+    character(len=60) :: sub_name
     
+    ! --------------------------------------------------------------------------
+
+    sub_name = 'define_geometry_fit'
+    call enter_exit(sub_name,1)
 
     if(.not.allocated(fit_soln)) allocate(fit_soln(4,10,16,num_nodes_2d))
+    allocate(nmap_info(7,num_nodes_2d*num_deriv*nmax_versn))
     
     ! linear fitting for 3 geometric variables. solution stored in fields 1,2,3
     ! includes Sobelov smoothing on the geometry field
@@ -161,8 +205,7 @@ contains
     !***Set up dependent variable interpolation information
     fit_soln = node_xyz_2d    
  
-    forall (i=1:num_elems_2d) elem_list(i) = i
-    elem_list(0) = num_elems_2d
+    elem_list = 0
 
     ! *** Specify smoothing constraints on each element
     sobelov_wts(0,:) = 1.0_dp 
@@ -179,51 +222,61 @@ contains
     
     fix_bcs = .false. !initialise, default
    
-    readfile = trim(fitting_file)//'.ipmap'
+    if(index(fitting_file, ".ipmap")> 0) then !full filename is given
+       readfile = fitting_file
+    else ! need to append the correct filename extension
+       readfile = trim(fitting_file)//'.ipmap'
+    endif
     open(IPFILE, file = readfile, status='old')
-    read_number_of_fixed : do
-       read(unit=IPFILE, fmt="(a)", iostat=ierror) string
-       if(index(string, "fixed")> 0) then
-          number_of_fixed = get_final_integer(string)
-          exit read_number_of_fixed
-       endif
-    end do read_number_of_fixed
-    
-    do node = 1,number_of_fixed
-       read(unit=IPFILE, fmt="(a)", iostat=ierror) string
-       ibeg = 1
-       i_ss_end = len(string) !get the end location of the sub-string
-       iend=index(string," ") !get location of next blank in sub-string
-       read (string(ibeg:iend-1), '(i6)' ) np_global
-       np = get_local_node_f(2,np_global)
 
-       string = adjustl(string(iend:i_ss_end)) ! get chars beyond " " and remove the leading blanks
-       iend=index(string," ") !get location of next blank in sub-string
-       read (string(ibeg:iend-1), '(i6)' ) nv_fix
+!!! read the element list for fitting, the fixed node locations and/or derivatives,
+!!! and the nodal derivative mapping for versions of nodes. Node locations for
+!!! multiple versions are assumed to be mapped to version 1.
+    read(unit=IPFILE, fmt="(a)", iostat=ierror) string
+    if(index(string, "Elements in fit:")> 0) then
+       ibeg = index(string,":")+1 ! get location of first integer in string
+       iend = len(string)
+       sub_string = adjustl(string(ibeg:iend)) ! get the characters beyond ":"
+       read(sub_string, fmt=*, iostat=ierror) elem_list
+    endif
 
-       string = adjustl(string(iend:i_ss_end)) ! get chars beyond " " and remove the leading blanks
-       read (string(ibeg:i_ss_end), '(i6)' ) nk
-
-       nk=nk+1 !read in 0 for coordinate, 1 for 1st deriv, 2 for 2nd deriv
-       if(nv_fix.eq.0)then ! do for all versions
-          do nv = 1,node_versn_2d(np)
+    read(unit=IPFILE, fmt="(a)", iostat=ierror) string
+    if(index(string, "Fixed nodes:")> 0) then
+       read_fixed_nodes : do
+          read(unit=IPFILE, fmt="(a)", iostat=ierror) string
+          if(index(string, "Mapped nodes:")> 0) exit ! move to the mapping
+          read(string, fmt=*, iostat=ierror) np_global, nv_fix, nk
+          np = get_local_node_f(2,np_global)
+          nk = nk+1 !read in 0 for coordinate, 1 for 1st deriv, 2 for 2nd deriv
+          if(nv_fix.eq.0)then ! do for all versions
+             do nv = 1,node_versn_2d(np)
+                do nh = 1,3
+                   ny = nynp(nk,nv,nh,np)
+                   fix_bcs(ny) = .true.
+                enddo !nh
+             enddo !nv
+          else
+             nv = nv_fix
              do nh = 1,3
                 ny = nynp(nk,nv,nh,np)
                 fix_bcs(ny) = .true.
+                fit_soln(nk,nv,nh,np) = 0.0_dp
              enddo !nh
-          enddo !nv
-       else
-          nv = nv_fix
-          do nh = 1,3
-             ny = nynp(nk,nv,nh,np)
-             fix_bcs(ny) = .true.
-             fit_soln(nk,nv,nh,np) = 0.0_dp
-          enddo !nh
-       endif
-    enddo !node
+          endif
+       enddo read_fixed_nodes !node
+    endif
     
-    call map_versions(IPFILE,num_depvar,nynp,nyny,cyny,fit_soln,fix_bcs)
+    number_of_maps = 0
+    nmap_info = 0
+    read_mapped_nodes : do
+       read(unit=IPFILE, fmt="(a)", iostat=ierror) string
+       if(index(string, "End:")> 0) exit  ! end of file
+       number_of_maps = number_of_maps + 1
+       read(string, fmt=*, iostat=ierror) nmap_info(1:7,number_of_maps)
+    enddo read_mapped_nodes
     close(IPFILE)
+
+    call map_versions(nmap_info,number_of_maps,num_depvar,nynp,nyny,cyny,fit_soln,fix_bcs)
     
     ! fix ALL of the cross derivatives, and set to zero
     do np = 1,num_nodes_2d
@@ -237,6 +290,10 @@ contains
        enddo !nv
     enddo !np
 
+    deallocate(nmap_info)
+    
+    call enter_exit(sub_name,2)
+
   end subroutine define_geometry_fit
   
 !!! ##########################################################################      
@@ -248,6 +305,12 @@ contains
 !!! local variables
     integer :: I,J,ng,nk,nn,ns,nu
     real(dp) :: D(3),XI(3),XIGG(3,3,2)
+    character(len=60) :: sub_name
+    
+    ! --------------------------------------------------------------------------
+
+    sub_name = 'gauss1'
+    call enter_exit(sub_name,1)
     
     D = [-0.3872983346207410_dp, 0.0_dp, 0.3872983346207410_dp]
     
@@ -269,6 +332,8 @@ contains
        enddo !i
     enddo !j
 
+    call enter_exit(sub_name,2)
+
   end subroutine gauss1
   
 !!! ##########################################################################      
@@ -285,6 +350,12 @@ contains
     integer :: nh,nv,nk,no,no_tot(2),np,nrc,ny,nyo,nyr,nyr2,nyy2(2),ny2
     real(dp) :: RATIO
     logical :: done
+    character(len=60) :: sub_name
+    
+    ! --------------------------------------------------------------------------
+
+    sub_name = 'globalf'
+    call enter_exit(sub_name,1)
     
 !!!***  Initialise mapping arrays
     nony = 0
@@ -350,6 +421,8 @@ contains
     NOT_2 = no_tot(1)
     nyno(:,:,2) = nyno(:,:,1)
 
+    call enter_exit(sub_name,2)
+
   end subroutine globalf
 
 !!! ##########################################################################      
@@ -361,6 +434,12 @@ contains
 !!! local variables
     integer :: ne,ne_adjacent,ni1,nj,npn(2)
     logical :: MAKE
+    character(len=60) :: sub_name
+    
+    ! --------------------------------------------------------------------------
+
+    sub_name = 'line_segments_for_2d_mesh'
+    call enter_exit(sub_name,1)
     
     num_lines_2d=0
     ! estimate number of lines, for allocating memory to arrays
@@ -486,6 +565,8 @@ contains
     
     call calc_scale_factors_2d('arcl')
     
+    call enter_exit(sub_name,2)
+
   end subroutine line_segments_for_2d_mesh
 
 !!! ##########################################################################      
@@ -502,8 +583,13 @@ contains
     integer elem,nd,nde,num_data_infit,ne,nj
     real(dp) :: data_xi_local(2),EDD,SAED,SMED,SUM,SQED,X(6),&
          XE(num_deriv_elem,num_coords)
+    character(len=60) :: sub_name
     
+    ! --------------------------------------------------------------------------
 
+    sub_name = 'list_data_error'
+    call enter_exit(sub_name,1)
+    
     SMED=0.0_dp
     SAED=0.0_dp
     SQED=0.0_dp
@@ -522,9 +608,9 @@ contains
           do nj=1,num_coords
              SUM=SUM+(X(nj)-data_xyz(nj,nd))**2
           enddo !nj
-          EDD=DSQRT(SUM)
+          EDD = sqrt(SUM)  ! distance of the point from the surface
           SMED=SMED+EDD
-          SAED=SAED+DABS(EDD)
+          SAED=SAED+abs(EDD)
           SQED=SQED+EDD**2
           num_data_infit=num_data_infit+1
        enddo !nde
@@ -532,28 +618,27 @@ contains
     
     if(num_data_infit.GT.1) then
        write(*,'('' Number of data points in fit ='',I8)') num_data_infit
-       !     write(*,'('' Average error           : '',D12.6,'' +/- '',D12.6)') &
-       !          SMED/DBLE(num_data_infit), &
-       !          DSQRT((SQED-SMED**2/DBLE(num_data_infit))/DBLE(num_data_infit-1))
-       
        write(*,'('' Average absolute error  : '',D12.6,'' +/- '',D12.6)') &
-            SAED/DBLE(num_data_infit),DSQRT((SQED-SAED**2/DBLE(num_data_infit))/ &
-            DBLE(num_data_infit-1))
+            SAED/real(num_data_infit),sqrt((SQED-SAED**2/real(num_data_infit))/ &
+            real(num_data_infit-1))
        write(*,'('' Root mean squared error : '',D12.6)') &
-            DSQRT(SQED/DBLE(num_data_infit))
+            sqrt(SQED/DBLE(num_data_infit))
     else
        WRITE(*,'('' No data points in any elements'')')
        stop
     endif !ndtot>1
     
+    call enter_exit(sub_name,2)
+
   end subroutine list_data_error
   
 !!! ##########################################################################      
   
-  subroutine map_versions(IPFILE,num_depvar,nynp,nyny,cyny,fit_soln,fix_bcs)
+  subroutine map_versions(nmap_info,number_of_maps,num_depvar,nynp,nyny, &
+       cyny,fit_soln,fix_bcs)
 
 !!! dummy arguments
-    integer, intent(in) :: IPFILE,num_depvar
+    integer, intent(in) :: nmap_info(:,:),num_depvar
     integer :: nynp(:,:,:,:)
     integer,allocatable :: nyny(:,:)
     real(dp),allocatable :: cyny(:,:)
@@ -562,10 +647,16 @@ contains
 !!! local variables
     integer :: i,ibeg,iend,ierror,i_ss_end,nj,node,np,number_of_maps,nv, &
          NV_MAX,ny,nk_t,nv_t,nj_t,np_t,nk_m,nv_m,nj_m,np_m, &
-         nmap_info(100,7),ny_t
+         ny_t
     real(dp) :: r_map_coef
     character(len=132) :: string
+    character(len=60) :: sub_name
     
+    ! --------------------------------------------------------------------------
+
+    sub_name = 'map_versions'
+    call enter_exit(sub_name,1)
+
 !!! fix the boundary conditions for coordinates for nodes with versions, such that
 !!! versions higher than 1 map to version 1     
     do np=1,num_nodes_2d
@@ -584,17 +675,7 @@ contains
     
 !!! read in the following for mapping:
 !!!    node, version, derivative >> node, version, derivative, mapping coefficient
-!!!    default is that all versions are independent
-    
-    read_number_of_mappings : do
-       read(unit=IPFILE, fmt="(a)", iostat=ierror) string
-       ! read line containing "Number of mappings"
-       if(index(string, "mappings")> 0) then
-           number_of_maps = get_final_integer(string)
-          exit read_number_of_mappings
-       endif
-    end do read_number_of_mappings
-    
+
     ! allocate memory for dependent variable mapping arrays
     if(.not.allocated(cyny)) allocate(cyny(0:number_of_maps,num_depvar)) 
     if(.not.allocated(nyny)) allocate(nyny(0:number_of_maps,num_depvar))
@@ -603,31 +684,19 @@ contains
     
 !!! note that the global node numbers are used in the mapping file, whereas we need to use
 !!! local numbering for the computation. Read in as global and then map to local below.
-    do node=1,number_of_maps ! for the number of nodes with mappings
-       read(unit=IPFILE, fmt="(a)", iostat=ierror) string
-       ibeg=1
-       i_ss_end=len(string) !get the end location of the sub-string
-       do i=1,6
-          iend=index(string," ") !get location of next blank in sub-string
-          read (string(ibeg:iend-1), '(i6)' ) nmap_info(node,i)
-          string = adjustl(string(iend:i_ss_end)) ! get the characters beyond " " and remove the leading blanks
-       enddo !i
-       read (string(ibeg:i_ss_end), '(i6)' ) nmap_info(node,7)
-    enddo !node
-    
-    do node = 1,number_of_maps !for each mapping
+    do node = 1,number_of_maps ! for the number of nodes with mappings
        do nj = 1,num_coords
-          nk_m = nmap_info(node,3)+1 !derivative
-          nv_m = nmap_info(node,2) !version
+          nk_m = nmap_info(3,node)+1 !derivative
+          nv_m = nmap_info(2,node) !version
           nj_m = nj !coordinate
-          np_m = get_local_node_f(2,nmap_info(node,1)) !global node mapped to local node
+          np_m = get_local_node_f(2,nmap_info(1,node)) !global node mapped to local node
           ny = nynp(nk_m,nv_m,nj_m,np_m)
-          nk_t = nmap_info(node,6)+1 !derivative
-          nv_t = nmap_info(node,5) !version
+          nk_t = nmap_info(6,node)+1 !derivative
+          nv_t = nmap_info(5,node) !version
           nj_t = nj !coordinate
-          np_t = get_local_node_f(2,nmap_info(node,4)) !global node mapped to local node
+          np_t = get_local_node_f(2,nmap_info(4,node)) !global node mapped to local node
           ny_t = nynp(nk_t,nv_t,nj_t,np_t)
-          r_map_coef = REAL(nmap_info(node,7)) !mapping coefficient, +1 or -1
+          r_map_coef = REAL(nmap_info(7,node)) !mapping coefficient, +1 or -1
           
           if(ny > 0) then
              nyny(0,ny) = nyny(0,ny)+1 ! increment array size
@@ -658,7 +727,56 @@ contains
        enddo !nj
     enddo
 
+    call enter_exit(sub_name,2)
+
   end subroutine map_versions
+  
+!!! ##########################################################################
+
+  subroutine update_versions(nynp,fit_soln,fix_bcs)
+
+    integer :: nynp(:,:,:,:)  
+    real(dp) :: fit_soln(:,:,:,:)
+    logical :: fix_bcs(:)
+    ! Local variables
+    integer :: nj,nk,np,nv,ny
+    character(len=60) :: sub_name
+    
+    ! --------------------------------------------------------------------------
+
+    sub_name = 'update_versions'
+    call enter_exit(sub_name,1)
+    
+!!! fix the boundary conditions for coordinates for nodes with versions, such that
+!!! versions higher than 1 map to version 1     
+    do np = 1,num_nodes_2d
+       if(node_versn_2d(np) > 1)then
+          do nv = 2,node_versn_2d(np)
+             do nj = 1,3
+                node_xyz_2d(1,nv,nj,np) = node_xyz_2d(1,1,nj,np)
+                fit_soln(1,nv,nj,np) = fit_soln(1,1,nj,np)
+                ny = nynp(1,nv,nj,np)
+                fix_bcs(ny) = .TRUE.
+             enddo !nj
+          enddo !nv
+       endif
+    enddo !node
+
+!!! fix ALL of the cross derivatives, and set to zero
+    do np = 1,num_nodes_2d
+       nk = 4 !index for 1-2 cross-derivative
+       do nv = 1,node_versn_2d(np)
+          do nj = 1,3
+             ny = nynp(nk,nv,nj,np)
+             fix_bcs(ny) = .TRUE.
+             node_xyz_2d(nk,nv,nj,np) = 0.0_dp
+          enddo !nj
+       enddo !nv
+    enddo !np
+
+    call enter_exit(sub_name,2)
+    
+  end subroutine update_versions
   
 !!! ##########################################################################      
   
@@ -667,6 +785,12 @@ contains
     integer :: ny_local(:),n_dof,ne,nynp(:,:,:,:)
 !!! local variables
     integer nh,nk,nn,np,nv
+    character(len=60) :: sub_name
+    
+    ! --------------------------------------------------------------------------
+
+    sub_name = 'local_dof'
+    call enter_exit(sub_name,1)
     
     n_dof = 0
     do nh = 1,num_fit
@@ -680,8 +804,50 @@ contains
        enddo !nn
     enddo !nhj
     
+    call enter_exit(sub_name,2)
+
   end subroutine local_dof
 
+!!! ##########################################################################      
+
+  subroutine update_node_in_line()
+
+    integer :: update_node=90
+    real(dp) :: line_length,location = 0.5_dp, xi_on_line
+    integer :: i,iline_1,iline_2,nline,np,n_xi_dctn=2
+    character(len=60) :: sub_name
+    
+    ! --------------------------------------------------------------------------
+
+    sub_name = 'update_node_in_line'
+    call enter_exit(sub_name,1)
+
+    np = get_local_node_f(2,update_node)
+    line_length = 0.0_dp
+    
+    do i = 1,num_lines_2d
+       nline = lines_2d(i)
+       if(nodes_in_line(1,0,nline).eq.n_xi_dctn)then ! only check lines in the right Xi direction
+          if(nodes_in_line(3,1,nline).eq.np.or. &
+               nodes_in_line(2,1,nline).eq.np)then
+             line_length = line_length + arclength(1,i) ! calculated the total arclength
+             if(nodes_in_line(3,1,nline).eq.np) iline_1 = i  ! np is the second node
+             if(nodes_in_line(2,1,nline).eq.np) iline_2 = i
+          endif
+       endif
+    enddo
+
+    line_length = line_length * location ! get the arclength for the adjusted node
+    if(line_length.le.arclength(1,iline_1))then
+       xi_on_line = line_length/arclength(1,iline_1)
+    else
+       xi_on_line = (arclength(1,iline_2)-line_length)/arclength(1,iline_2)
+    endif
+
+    call enter_exit(sub_name,2)
+
+  end subroutine update_node_in_line
+  
 !!! ##########################################################################      
 
   function psi1(nu,nk,nn,XI)
@@ -733,6 +899,12 @@ contains
 !!! local variables
     integer :: nj,nk,nk1,np,nv
     real(dp) :: SCALE,XD(3),ZERO_TOL=1.0e-12_dp
+    character(len=60) :: sub_name
+    
+    ! --------------------------------------------------------------------------
+
+    sub_name = 'update_scale_factor_norm'
+    call enter_exit(sub_name,1)
     
     do np=1,num_nodes_2d
        do nv=1,node_versn_2d(np)
@@ -755,6 +927,8 @@ contains
     
     call calc_scale_factors_2d('arcl')
     
+    call enter_exit(sub_name,2)
+
   end subroutine update_scale_factor_norm
   
 !!! ##########################################################################      
@@ -769,6 +943,8 @@ contains
 !!! local variablesK     Local Variables
     integer :: nj,nk,nn,np,ns,nv
     
+    ! --------------------------------------------------------------------------
+
     do nj=1,3
        ns=0
        do nn=1,num_elem_nodes
@@ -800,6 +976,12 @@ contains
 !!! local variables
     integer nd,nde,ng,nh,nhs1,nk1,nn1,ns1,ns2,nu
     real(dp) :: SUM1,SUM2,SUM3,SUM4,X,ZDL(3,nmax_data_elem)
+    character(len=60) :: sub_name
+    
+    ! --------------------------------------------------------------------------
+
+    sub_name = 'zder'
+    call enter_exit(sub_name,1)
     
     do nde = 1,ndata_on_elem(ne) ! for each data point on the element
        nd = data_on_elem(ne,nde) ! the data point number
@@ -840,6 +1022,8 @@ contains
        enddo !nn1
     enddo !nhj1
     
+    call enter_exit(sub_name,2)
+
   end subroutine zder
   
 !!! ##########################################################################      
@@ -859,6 +1043,12 @@ contains
     integer nde,ng,nh1,nh2,nhj1,nhj2,nhs1,nhs1_for_nhj1,nhs2, &
          nk1,nk2,nn1,nn2,ns1,ns2,nu
     real(dp) :: PD(num_deriv_elem),SUM2,SUM3
+    character(len=60) :: sub_name
+    
+    ! --------------------------------------------------------------------------
+
+    sub_name = 'zdes'
+    call enter_exit(sub_name,1)
     
     ES = 0.0_dp
     nhs1 = 0
@@ -926,6 +1116,8 @@ contains
        enddo !nn1
     enddo !nhj1
     
+    call enter_exit(sub_name,2)
+
   end subroutine zdes
 
 !!! ##########################################################################      
@@ -938,6 +1130,12 @@ contains
     real(dp) :: fit_soln(:,:,:,:)
 !!! local variables
     integer :: nh,nk,nn,np,ns,nv
+    character(len=60) :: sub_name
+    
+    ! --------------------------------------------------------------------------
+
+    sub_name = 'zpze_fit'
+    call enter_exit(sub_name,1)
     
     do nh = 1,num_fit
        ns = 0
@@ -951,6 +1149,8 @@ contains
        enddo !nn
     enddo !nhx
     
+    call enter_exit(sub_name,2)
+
   end subroutine zpze_fit
   
 !!! ##########################################################################      
@@ -980,6 +1180,12 @@ contains
     real(dp) :: PD(num_deriv_elem),PG(16,6,9),WG(9)
     real(dp),dimension(3,nmax_data_elem) :: WDL
     real(dp),dimension(2,nmax_data_elem) :: XIDL
+    character(len=60) :: sub_name
+    
+    ! --------------------------------------------------------------------------
+
+    sub_name = 'make_element_matrices'
+    call enter_exit(sub_name,1)
     
     WG = [7.7160493827160628e-2_dp, 0.12345679012345677_dp, 7.7160493827160628e-2_dp,&
          0.12345679012345677_dp, 0.19753086419753044_dp, 0.12345679012345677_dp,&
@@ -1111,6 +1317,8 @@ contains
        enddo !nn1
     enddo !nhj1
     
+    call enter_exit(sub_name,2)
+
   end subroutine make_element_matrices
   
 !!! ##########################################################################      
@@ -1121,6 +1329,12 @@ contains
     integer :: npny(:,:),num_depvar,nynp(:,:,:,:)
 !!! local variables
     integer nh,nk,np,nv,ny
+    character(len=60) :: sub_name
+    
+    ! --------------------------------------------------------------------------
+
+    sub_name = 'calculate_ny_maps'
+    call enter_exit(sub_name,1)
     
     !***  Initialise mapping arrays 
     nynp = 0
@@ -1144,6 +1358,8 @@ contains
     enddo !njj
     num_depvar = ny
 
+    call enter_exit(sub_name,2)
+
   end subroutine calculate_ny_maps
 
 !!! ##########################################################################      
@@ -1155,7 +1371,12 @@ contains
     !     Local Variables
     integer :: ierror,ne,nn,noelem,np,number_of_elements
     character(len=132) :: ctemp1
+    character(len=60) :: sub_name
     
+    ! --------------------------------------------------------------------------
+
+    sub_name = 'define_2d_elements'
+    call enter_exit(sub_name,1)
     
     open(10, file=ELEMFILE, status='old')
     
@@ -1212,15 +1433,17 @@ contains
     call element_connectivity_2d
     call line_segments_for_2d_mesh
     
+    call enter_exit(sub_name,2)
+    
   end subroutine define_2d_elements
   
 !!! ##########################################################################      
 
-  subroutine define_xi_closest(data_elem,data_on_elem,ndata_on_elem,data_xi,first)
+  subroutine define_xi_closest(data_elem,data_on_elem,elem_list,ndata_on_elem,data_xi,first)
 !!! find the closest xi location on a 2d mesh surface to each data point
     implicit none
 
-!!! dummy arguments    
+    integer,intent(in) :: elem_list(:)
     integer :: data_elem(:),data_on_elem(:,:),ndata_on_elem(:)
     real(dp) :: data_xi(:,:)
     logical,intent(in) :: first
@@ -1234,6 +1457,12 @@ contains
     character(len=200) :: exfile
     character(len=1) :: string_ne1
     character(len=2) :: string_ne2
+    character(len=60) :: sub_name
+    
+    ! --------------------------------------------------------------------------
+
+    sub_name = 'define_xi_closest'
+    call enter_exit(sub_name,1)
     
     allocate(sq(num_data))    
 
@@ -1263,7 +1492,8 @@ contains
     if(first)then ! check every element for every data point
        do nd = 1,num_data
           sqmax = 1.0e4_dp*1.0e4_dp
-          do ne = 1,num_elems_2d
+          do i = 1,count(elem_list/=0) !num_elems_2d
+             ne = get_local_elem(elem_list(i)) ! elem_list stores global elements
              xi = 0.5_dp
              call xpxe(ne,xe)
              found = .false.
@@ -1341,32 +1571,34 @@ contains
 
     deallocate(sq)
 
-    exfile = 'temp.exdata'
-    open(10, file = exfile, status = 'replace')
+    !exfile = 'temp.exdata'
+    !open(10, file = exfile, status = 'replace')
 
-    do ne = 1,num_elems_2d
-       !**   write the group name
-       if(ne.lt.10)then
-          write(string_ne1,'(i1)') ne
-          write(10,'( '' Group name: '',A)') 'datapoints_'//string_ne1
-       else
-          write(string_ne2,'(i2)') ne
-          write(10,'( '' Group name: '',A)') 'datapoints_'//string_ne2
-       endif
-       write(10,'(1X,''#Fields=1'')')
-       write(10,'(1X,''1) coordinates, coordinate, rectangular cartesian, #Components=3'')')
-       write(10,'(1X,''  x.  Value index= 1, #Derivatives=0'')')
-       write(10,'(1X,''  y.  Value index= 2, #Derivatives=0'')')
-       write(10,'(1X,''  z.  Value index= 3, #Derivatives=0'')')
+    !do ne = 1,num_elems_2d
+     !  !**   write the group name
+     !  if(ne.lt.10)then
+     !     write(string_ne1,'(i1)') ne
+     !     write(10,'( '' Group name: '',A)') 'datapoints_'//string_ne1
+     !  else
+     !     write(string_ne2,'(i2)') ne
+     !     write(10,'( '' Group name: '',A)') 'datapoints_'//string_ne2
+     !  endif
+     !  write(10,'(1X,''#Fields=1'')')
+     !  write(10,'(1X,''1) coordinates, coordinate, rectangular cartesian, #Components=3'')')
+     !  write(10,'(1X,''  x.  Value index= 1, #Derivatives=0'')')
+     !  write(10,'(1X,''  y.  Value index= 2, #Derivatives=0'')')
+     !  write(10,'(1X,''  z.  Value index= 3, #Derivatives=0'')')
+    !
+     !  do n_data = 1,ndata_on_elem(ne)
+     !     nd = data_on_elem(ne,n_data)
+     !     write(10,'(1X,''Node: '',I9)') nd
+     !     write(10,'(1X,3E13.5)')  (data_xyz(nj,nd),nj=1,num_coords)
+     !  enddo !n_data
+    !enddo !ne
+    !close(10)
     
-       do n_data = 1,ndata_on_elem(ne)
-          nd = data_on_elem(ne,n_data)
-          write(10,'(1X,''Node: '',I9)') nd
-          write(10,'(1X,3E13.5)')  (data_xyz(nj,nd),nj=1,num_coords)
-       enddo !n_data
-    enddo !ne
-    close(10)
-    
+    call enter_exit(sub_name,2)
+
   end subroutine define_xi_closest
   
 
@@ -1378,7 +1610,7 @@ contains
 
 !!! dummy arguments
     integer :: data_on_elem(:,:),ndata_on_elem(:),not_1,not_2,num_depvar,&
-         elem_list(0:),npny(:,:),nynp(:,:,:,:),nyny(0:,:)
+         elem_list(:),npny(:,:),nynp(:,:,:,:),nyny(0:,:)
     real(dp) :: data_xi(:,:),cyny(0:,:),sobelov_wts(0:,:),fit_soln(:,:,:,:)
     logical :: fix_bcs(:)
 !!! local variables
@@ -1401,7 +1633,12 @@ contains
 ! doesn't like allocating these! gives different answer for errors
 !    real(dp),allocatable :: GKK(:)
 !    real(dp),allocatable :: GK(:)
-  
+    character(len=60) :: sub_name
+    
+    ! --------------------------------------------------------------------------
+
+    sub_name = 'solve_geometry_fit'
+    call enter_exit(sub_name,1)
     
     allocate(incr_soln(num_depvar))
     allocate(nony(0:1,num_depvar))
@@ -1417,8 +1654,8 @@ contains
     
     GR = 0.0_dp
     
-    do l = 1,elem_list(0) !loop over elements in the fit
-       ne = elem_list(l)
+    do l = 1,count(elem_list/=0) !loop over elements in the fit
+       ne = get_local_elem(elem_list(l)) ! elem_list stores global elements
        
        call make_element_matrices(ne,fit_soln_local,fit_soln, &
             data_on_elem,ndata_on_elem,data_xi,ER,ES,sobelov_wts)
@@ -1507,6 +1744,8 @@ contains
 !    deallocate(GK)
 !    deallocate(GKK)
 
+    call enter_exit(sub_name,2)
+  
   end subroutine solve_geometry_fit
   
 !!! ##########################################################################        
@@ -1526,6 +1765,8 @@ contains
          TOL2,V(2),V1,V2,VMAX=1.0_dp,W,XILIN(2),Z(3)
     logical :: CONVERGED,ENFORCE(2),FREE,NEWTON
     
+    ! --------------------------------------------------------------------------
+
     ITMAX = 10 ! max # iterations to use
     DELTA = VMAX/4.0_dp
     TOL = 5.0_dp*LOOSE_TOL !must be > sqrt(eps) or SQLIN<=SQ check may not work
@@ -1741,6 +1982,12 @@ contains
     real(dp) :: A(:),B(:),X(:)
 !!! local variables
     integer,allocatable :: pivots(:)
+    character(len=60) :: sub_name
+    
+    ! --------------------------------------------------------------------------
+
+    sub_name = 'solve_fit_system'
+    call enter_exit(sub_name,1)
     
     allocate(pivots(num_depvar*num_depvar))
 
@@ -1752,6 +1999,8 @@ contains
 
     deallocate(pivots)
     
+    call enter_exit(sub_name,2)
+
   end subroutine solve_fit_system
   
 !!! ##########################################################################      
@@ -1762,6 +2011,12 @@ contains
     real(dp) :: A(M, * )
     integer :: j,j_pivot
     real(dp),allocatable :: temp_vec(:)
+    character(len=60) :: sub_name
+    
+    ! --------------------------------------------------------------------------
+
+    sub_name = 'lu_decomp'
+    call enter_exit(sub_name,1)
 
     allocate(temp_vec(M))
 
@@ -1787,6 +2042,8 @@ contains
 
     deallocate(temp_vec)
     
+    call enter_exit(sub_name,2)
+
   end subroutine lu_decomp
 
 !!! ##########################################################################      
