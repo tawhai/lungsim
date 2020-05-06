@@ -552,6 +552,8 @@ contains
     
     call element_connectivity_1d
     call evaluate_ordering
+
+    elem_ordrs(no_type,:) = 1 ! 0 for respiratory, 1 for conducting
     
     call enter_exit(sub_name,2)
 
