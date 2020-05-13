@@ -15,12 +15,13 @@ module mesh_utilities
   private
 
   public  area_between_three_points,area_between_two_vectors,angle_btwn_points, &
-       angle_btwn_vectors,bifurcation_element,calc_branch_direction, &
+       angle_btwn_vectors,bifurcation_element,calc_arclengths,calc_branch_direction, &
        calc_scale_factors_2d,check_colinear_points,cross_product,&
        direction_point_to_point,distance_between_points, &
-       distance_from_plane_to_point,hermite,make_plane_from_3points, &
-       mesh_a_x_eq_b,pl1,point_internal_to_surface,scalar_product_3, &
-       scalar_triple_product,scale_mesh,stem_element,terminal_element, &
+       distance_from_plane_to_point,hermite,linear,make_plane_from_3points, &
+       mesh_a_x_eq_b,point_internal_to_surface,scalar_product_3, &
+       scalar_triple_product,scale_mesh,set_linear_derivatives,stem_element,&
+       terminal_element, &
        unit_norm_to_plane_two_vectors,unit_norm_to_three_points,unit_vector, &
        vector_length,volume_internal_to_surface,which_child
 
@@ -77,13 +78,14 @@ contains
     ! Gaussian quadrature with 4 points
 
     ! Local variables
-    integer :: n,nj,nl,nline,np,nvxi_direction
-    real(dp) :: line_xyz(2,3,2),weight(4),xigg(4)
+    integer :: i,it,itmax,n,ng,nj,nl,nline,np,nv,xi_direction
+    real(dp) :: est_length,incr_length,linear_est,line_xyz(2,3,2), &
+         local_deriv(3),weight(4),xigg(4)
 
     xigg = [0.0694318442029_dp, 0.3300094782075_dp,&
-         0.6699905217924_dp, 0.9305681557970_dp] ! Gauss point locations
+         0.6699905217924_dp, 0.9305681557970_dp]    ! exact Gauss point locations
     weight = [0.1739274225687_dp, 0.3260725774313_dp,&
-         0.3260725774313_dp, 0.1739274225687_dp] ! Gauss point weightings
+         0.3260725774313_dp, 0.1739274225687_dp]    ! exact Gauss point weightings
 
     do nline = 1,num_lines_2d                ! loop over all lines
        nl = lines_2d(nline)                  ! the line number 
@@ -98,64 +100,44 @@ contains
           if(xi_direction.eq.2) line_xyz(2,:,n) = node_xyz_2d(3,nv,:,np) ! dxi2
        enddo !n
        
-       ! get an initial estimate for arc length using Gaussian quadrature
+       ! calculate the linear distance between start and end nodes. this should be
+       ! used to check that the derivatives are appropriate when the start and 
+       ! end nodes are coincident (i.e. a collapsed element). 
        est_length = 0.0_dp
        do ng = 1,4
           ! calculate the arclength derivatives
           do nj = 1,3
-             do k = 1,2
-                XA_LOCAL(k,nj) = PL1(1,k,xigg(ng))*line_xyz(1,nj,1) &
-                     + PL1(2,k,xigg(ng))*line_xyz(1,nj,2)
-             enddo
+             ! local_deriv = phi_10' * xyz_1 + phi_20' * xyz_2
+             local_deriv(nj) = linear(1,2,xigg(ng))*line_xyz(1,nj,1) &
+                  + linear(2,2,xigg(ng))*line_xyz(1,nj,2)
           enddo
-          
-          derivative = XA_LOCAL(2,1)**2+XA_LOCAL(2,2)**2+XA_LOCAL(2,3)**2
-          ! exit arcder
-          est_length = est_length + weight(ng) * sqrt(derivative)
+          incr_length = sqrt(scalar_product_3(local_deriv,local_deriv))
+          est_length = est_length + weight(ng) * incr_length
        enddo !ng
        
-       arclength(1:3,nl) = est_length
-       
-       ! iterate to find arclength, using initial estimate
-       it = 0
-       iterative_loop : do
-          it = it + 1
-          SUM3 = 0.0_dp
-          SUM4 = 0.0_dp
-          do ng = 1,4
-             W = weight(ng)
-             ! calculate the arclength derivatives at Xi coordinates 
-             do nj = 1,3
-                do k = 1,2
-                   XA_LOCAL(k,nj) = hermite(1,1,k,xigg(ng))*line_xyz(1,nj,1) &
-                        + hermite(1,2,k,xigg(ng))*line_xyz(2,nj,1)*arclength(1,nl) &
-                        + hermite(2,1,k,xigg(ng))*line_xyz(1,nj,2) &
-                        + hermite(2,2,k,xigg(ng))*line_xyz(2,nj,2)*arclength(2,nl)
-                enddo
-                XA_LOCAL(3,nj) = hermite(1,2,2,xigg(ng))*line_xyz(2,nj,1) &
-                     + hermite(2,2,2,xigg(ng))*line_xyz(2,nj,2)
-             enddo
-             SUM1 = XA_LOCAL(2,1)**2+XA_LOCAL(2,2)**2+XA_LOCAL(2,3)**2
-             SUM2 = 0.0_dp
-             do nj = 1,3
-                SUM2 = SUM2+XA_LOCAL(2,nj)*XA_LOCAL(3,nj)
-             enddo !nj
-             SUM3 = SUM3 + weight(ng)*sqrt(SUM1)
-             if(SUM1.GT.1.0e-6_dp) SUM4=SUM4+W*SUM2/sqrt(SUM1)
-          enddo !ng
-          ! estimate a Newton step
-          arclength_step = -(arclength(3,nl)-SUM3)/(1.0_dp-SUM4)
-          if(abs(DA).GT.1.0e+6_dp) then
-             arclength(3,nl) = 1.0_dp
-             exit iterative_loop
-          endif
-          
-          arclength(3,nl) = arclength(3,nl) + arclength_step      !is new arclength
-          arclength(1:2,nl) = arclength(3,nl)
-          
-          if(it.eq.ITMAX) exit iterative_loop
-          
-       enddo iterative_loop      !iteration
+       linear_est = est_length
+
+       est_length = 0.0_dp
+       do ng = 1,4
+          ! calculate the arclength derivatives at Xi coordinates 
+          do nj = 1,3
+             !function' = phi_10'*xyz_1 + phi_11'*deriv_1 + phi_20'*xyz_2 + phi_21'*deriv_2
+             local_deriv(nj) = hermite(1,1,2,xigg(ng))*line_xyz(1,nj,1) &
+                  + hermite(1,2,2,xigg(ng))*line_xyz(2,nj,1) &
+                  + hermite(2,1,2,xigg(ng))*line_xyz(1,nj,2) &
+                  + hermite(2,2,2,xigg(ng))*line_xyz(2,nj,2)
+          enddo
+          incr_length = sqrt(scalar_product_3(local_deriv,local_deriv))
+          est_length = est_length + weight(ng) * incr_length
+       enddo !ng
+       if(abs(linear_est).gt.zero_tol)then
+          arclength(nl) = est_length
+       else
+          arclength(nl) = 0.0_dp
+          np = nodes_in_line(2,1,nl)         ! the first node
+          nv = line_versn_2d(1,1,nl)         ! the version of the node for this line
+          node_xyz_2d(xi_direction+1,nv,:,np) = 0.0_dp
+       endif
     enddo !loop over lines
 
   end subroutine calc_arclengths
@@ -188,7 +170,7 @@ contains
     character(len=4),intent(in) :: sf_option
 !!! local variables
     integer,parameter :: num_deriv = 4
-    integer :: ido(num_deriv,2),it,ITMAX=20,k,N,NAE,ne,&
+    integer :: i,ido(num_deriv,2),it,ITMAX=20,k,N,NAE,ne,&
          ng,NGA=4,NI1(3),ni,ni2,nj,nk,nk2,nl,nline,nn,nn2,NNK,&
          np,ns,nv,NNL(2,4)
     real(dp) :: DA,SUM1,SUM2,SUM3,SUM4,W
@@ -228,7 +210,7 @@ contains
                    enddo
                    do nk=2,num_deriv
                       if(IDO(nk,ni2).EQ.1) then
-                         scale_factors_2d(nk+ns,ne) = arclength(N,nl)
+                         scale_factors_2d(nk+ns,ne) = arclength(nl)
                          if(abs(scale_factors_2d(nk+ns,ne)).LT.1.0e-6_dp) scale_factors_2d(nk+ns,ne) = 1.0_dp
                       endif
                    enddo !nk
@@ -327,6 +309,25 @@ contains
   end subroutine scale_mesh
 
 !!!##################################################
+
+  subroutine set_linear_derivatives
+
+    ! Local variables
+    integer :: nk,nl,nline,np1,np2,nv1
+
+    do nline = 1,num_lines_2d                ! loop over all lines
+       nl = lines_2d(nline)                  ! the line number 
+       nk = nodes_in_line(1,0,nl)+1          ! the derivative = xi direction+1
+       np1 = nodes_in_line(2,1,nl)           ! the first node
+       nv1 = line_versn_2d(1,1,nl)           ! the version of the node for this line
+       np2 = nodes_in_line(3,1,nl)           ! the second node
+       node_xyz_2d(nk,nv1,:,np1) = node_xyz_2d(1,1,:,np2) &
+            - node_xyz_2d(1,1,:,np2)
+    enddo !nline
+    
+  end subroutine set_linear_derivatives
+  
+!!!##################################################
   
   function area_between_two_vectors(vect_a,vect_b)
     
@@ -381,7 +382,7 @@ contains
     
     i_j_k = 100*i + 10*j + k
     
-    select case(I_J_K)
+    select case(i_j_k)
     case(111) !i=1,j=1,k=1
        hermite = 1.0_dp - 3.0_dp*xi**2 + 2.0_dp*xi**3  ! phi_10 = 1 -3xi^2 + 2xi^3
     case(121) !i=1,j=2,k=1
@@ -412,31 +413,31 @@ contains
 
 !!! ##########################################################################      
 
-  function pl1(I,K,XI)
+  function linear(i,k,xi)
     
-!!! dummy arguments
-    integer :: I,I_K,K
-    real(dp) :: XI
+    integer,intent(in) :: i,k
+    real(dp),intent(in) :: xi
 !!! local variables
-    real(dp) :: pl1
+    integer :: i_k
+    real(dp) :: linear
     
-    I_K = 10*I + K
+    i_k = 10*i + k
     
     select case(I_K)
     case(11) !i=1,k=1
-       PL1=1.0_dp-XI
+       linear = 1.0_dp-xi                              ! phi_10 = 1-xi
     case(21) !i=2,k=1
-       PL1=XI
+       linear = xi                                     ! phi_20 = xi
     case(12) !i=1,k=2
-       PL1=-1.0_dp
+       linear = -1.0_dp                                ! phi_10' = -1
     case(22) !i=2,k=2
-       PL1=1.0_dp
+       linear = 1.0_dp                                 ! phi_20' = 1
     case(30 :) !k=3
-       PL1=0.0_dp
+       linear = 0.0_dp                                 ! phi_10''= phi_20'' = 0
     end select
     
     return
-  end function pl1
+  end function linear
 
 !!!##################################################
   

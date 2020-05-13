@@ -39,7 +39,7 @@ module arrays
   integer,allocatable :: elems_at_node_2d(:,:)
   integer,allocatable :: units(:)
 
-  real(dp),allocatable :: arclength(:,:)
+  real(dp),allocatable :: arclength(:)
   real(dp),allocatable :: elem_field(:,:) !properties of elements
   real(dp),allocatable :: elem_direction(:,:)
   real(dp),allocatable :: node_xyz(:,:)

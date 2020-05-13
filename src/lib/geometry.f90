@@ -934,7 +934,7 @@ contains
     
 !!!allocate memory to arrays that require node number
     if(.not.allocated(nodes_2d)) allocate(nodes_2d(num_nodes_2d))
-    if(.not.allocated(node_xyz_2d)) allocate(node_xyz_2d(4,10,16,num_nodes_2d))
+    if(.not.allocated(node_xyz_2d)) allocate(node_xyz_2d(4,10,3,num_nodes_2d))
     if(.not.allocated(node_versn_2d)) allocate(node_versn_2d(num_nodes_2d))
     
     !.....read the coordinate, derivative, and version information for each node. 
@@ -1032,7 +1032,7 @@ contains
 
 !!!allocate memory to arrays that require node number
     if(.not.allocated(nodes_2d)) allocate(nodes_2d(num_nodes_2d))
-    if(.not.allocated(node_xyz_2d)) allocate(node_xyz_2d(4,10,16,num_nodes_2d))
+    if(.not.allocated(node_xyz_2d)) allocate(node_xyz_2d(4,10,3,num_nodes_2d))
     if(.not.allocated(node_versn_2d)) allocate(node_versn_2d(num_nodes_2d))
     nodes_2d = 0
     node_xyz_2d = 0.0_dp
@@ -2899,7 +2899,7 @@ contains
        if(.not.allocated(line_versn_2d)) allocate(line_versn_2d(2,3,num_lines_2d))
        if(.not.allocated(lines_in_elem)) allocate(lines_in_elem(0:4,num_lines_2d))
        if(.not.allocated(nodes_in_line)) allocate(nodes_in_line(3,0:3,num_lines_2d))
-       if(.not.allocated(arclength)) allocate(arclength(3,num_lines_2d)) 
+       if(.not.allocated(arclength)) allocate(arclength(num_lines_2d)) 
        lines_in_elem=0
        lines_2d=0
        nodes_in_line=0

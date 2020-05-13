@@ -46,6 +46,7 @@ contains
     integer,allocatable :: elem_list(:)          ! list of elements in fit (all)
     integer,allocatable :: ndata_on_elem(:)      ! # of data points closest to element
     integer,allocatable :: npny(:,:)             ! maps deriv, vers, node, etc for a dep. variable
+    integer,allocatable :: np_list_redist(:,:)   ! lists of nodes to be uniformly redistributed
     integer,allocatable :: nynp(:,:,:,:)         ! dep. variable # for node, deriv, version etc.
     integer,allocatable :: nynr(:)               ! list of all dep. variables
     integer,allocatable :: nyny(:,:)             ! maps dep. variable to another dep. variable
@@ -65,6 +66,7 @@ contains
 !!! allocate element-sized arrays
     allocate(elem_list(num_elems_2d))
     allocate(sobelov_wts(0:6,num_elems_2d))
+    allocate(np_list_redist(num_elems_2d*5,20)) ! sizing is arbitrary
 
 !!! allocate data arrays
     allocate(data_elem(num_data))
@@ -81,9 +83,9 @@ contains
     allocate(fix_bcs(ny_max))
 
     write(*,'('' Define boundary conditions and mapping '')')
-    call define_geometry_fit(elem_list,npny,num_depvar,nynp,nynr,nyny,&
+    call define_geometry_fit(elem_list,np_list_redist,npny,num_depvar,nynp,nynr,nyny,&
          cyny,sobelov_wts,fit_soln,fitting_file,fix_bcs)
-    
+
 !!! find the closest surface to each data point, and calculate the Xi
 !!! coordinates of the data point to the surface
     write(*,'('' Calculating normal projections: slow first time '')')
@@ -93,7 +95,6 @@ contains
 !!! list the total error between the data points and the surface
     write(*,'(/'' TOTAL RMS ERROR PRIOR TO FITTING:'')') 
     call list_data_error(data_on_elem,ndata_on_elem,data_xi)
-
 !!! read 'fitting_file' to define the fitting constraints. set up mapping
 !!! arrays, dependent variable arrays, Sobelov smoothing weights (hardcoded)
     do nfit = 1,niterations ! user-defined number of iterations
@@ -104,9 +105,11 @@ contains
             elem_list,not_1,not_2,npny,nynp,&
             nyny,data_xi,cyny,sobelov_wts,fit_soln,fix_bcs)
        call update_versions(nynp,fit_soln,fix_bcs)
-       !write(*,'('' Update pseudo-landmarks locations '')')
-       call calc_scale_factors_2d('unit')
-!       call update_node_in_line()
+       call calc_arclengths
+       write(*,'('' Update pseudo-landmarks locations '')')
+       ! update the node locations on base, fissures, anterior and posterior lines
+       call distribute_surface_node_fit(np_list_redist,nynp,fit_soln,fix_bcs) ! lateral-base
+    
 !!!    update the scale factors for new geometry if NOT unit scale factors
 !       write(*,'('' Update scale factors '')')
 !       call update_scale_factor_norm
@@ -126,6 +129,7 @@ contains
     deallocate(cyny)
     deallocate(nynr)
     deallocate(npny)
+    deallocate(np_list_redist)
     deallocate(nynp)
     deallocate(nyny)
     deallocate(fix_bcs)
@@ -170,7 +174,7 @@ contains
   
 !!! ##########################################################################      
   
-  subroutine define_geometry_fit(elem_list,npny,num_depvar,nynp,nynr,nyny,&
+  subroutine define_geometry_fit(elem_list,np_list_redist,npny,num_depvar,nynp,nynr,nyny,&
        cyny,sobelov_wts,fit_soln,fitting_file,fix_bcs)
 
 !!! read information from 'fitting_file' to determine the boundary conditions
@@ -178,7 +182,7 @@ contains
 !!! dependent variable-to-mapping arrays  
   
 !!! dummy arguments
-    integer :: elem_list(:),npny(:,:),num_depvar,nynp(:,:,:,:),nynr(0:)
+    integer :: elem_list(:),np_list_redist(:,:),npny(:,:),num_depvar,nynp(:,:,:,:),nynr(0:)
     integer,allocatable :: nyny(:,:)
     real(dp) :: sobelov_wts(0:,:)
     real(dp),allocatable :: cyny(:,:),fit_soln(:,:,:,:)
@@ -186,8 +190,9 @@ contains
     logical :: fix_bcs(:)
 !!! local variables
     integer :: i,ibeg,iend,ierror,IPFILE=10,i_ss_end,L,ne,nh,nj,nk, &
-         node,np,np_global,number_of_maps,number_of_fixed,nv,nv_fix,ny
+         node,np,np_global,number_of_maps,number_of_fixed,num_redists,nv,nv_fix,ny
     integer,allocatable :: nmap_info(:,:)
+    real(dp) :: temp_weights(7)
     character(len=300) :: readfile,string,sub_string
     character(len=60) :: sub_name
     
@@ -207,16 +212,6 @@ contains
  
     elem_list = 0
 
-    ! *** Specify smoothing constraints on each element
-    sobelov_wts(0,:) = 1.0_dp 
-    sobelov_wts(1,:) = 1.0_dp !the scaling factor for the Sobolev weights
-    !  The 5 weights on derivs wrt Xi_1/_11/_2/_22/'_12 are:
-    sobelov_wts(2,:) = 1.0e-2_dp !weight for deriv wrt Xi_1
-    sobelov_wts(3,:) = 0.4_dp
-    sobelov_wts(4,:) = 1.0e-2_dp
-    sobelov_wts(5,:) = 0.4_dp
-    sobelov_wts(6,:) = 0.8_dp
-    
     !*** Calculate ny maps
     call calculate_ny_maps(npny,num_depvar,nynp)
     
@@ -270,20 +265,52 @@ contains
     nmap_info = 0
     read_mapped_nodes : do
        read(unit=IPFILE, fmt="(a)", iostat=ierror) string
-       if(index(string, "End:")> 0) exit  ! end of file
+       if(index(string, "Redistribute nodes:")> 0) exit  ! go to the enxt section
        number_of_maps = number_of_maps + 1
        read(string, fmt=*, iostat=ierror) nmap_info(1:7,number_of_maps)
     enddo read_mapped_nodes
+
+    np_list_redist = 0
+    num_redists = 0
+    read_redistribute_nodes : do
+       read(unit=IPFILE, fmt="(a)", iostat=ierror) string
+       if(index(string, "Sobelov weights:")> 0) exit  ! end of file
+       num_redists = num_redists + 1
+       read(string, fmt=*, iostat=ierror) np_list_redist(num_redists,:)
+    enddo read_redistribute_nodes
+
+    ! *** Specify smoothing constraints on each element
+    ! set some default values in case smoothing not specified
+    sobelov_wts(0,:) = 1.0_dp 
+    sobelov_wts(1,:) = 1.0_dp !the scaling factor for the Sobolev weights
+    !  The 5 weights on derivs wrt Xi_1/_11/_2/_22/'_12 are:
+    sobelov_wts(2,:) = 1.0e-2_dp !weight for deriv wrt Xi_1
+    sobelov_wts(3,:) = 0.4_dp
+    sobelov_wts(4,:) = 1.0e-2_dp
+    sobelov_wts(5,:) = 0.4_dp
+    sobelov_wts(6,:) = 0.8_dp
+    read_smoothing : do
+       read(unit=IPFILE, fmt="(a)", iostat=ierror) string
+       if(index(string, "End:")> 0) exit  ! end of file
+       read(string, fmt=*, iostat=ierror) ne,temp_weights(1:7)
+       if(ne.eq.0)then
+          forall(i = 0:6) sobelov_wts(i,1:num_elems_2d) = temp_weights(i+1)
+       else
+          ne = get_local_elem(ne)
+          forall(i = 0:6) sobelov_wts(i,ne) = temp_weights(i+1)
+       endif
+    enddo read_smoothing
+    
+
     close(IPFILE)
 
     call map_versions(nmap_info,number_of_maps,num_depvar,nynp,nyny,cyny,fit_soln,fix_bcs)
     
     ! fix ALL of the cross derivatives, and set to zero
     do np = 1,num_nodes_2d
-       nk = 4 !index for 1-2 cross-derivative
        do nv = 1,node_versn_2d(np)
           do nj = 1,num_coords
-             ny = nynp(nk,nv,nj,np)
+             ny = nynp(4,nv,nj,np)
              fix_bcs(ny) = .TRUE.
              node_xyz_2d(nk,nv,nj,np) = 0.0_dp
           enddo !nj
@@ -455,7 +482,7 @@ contains
     if(.not.allocated(lines_in_elem)) allocate (lines_in_elem(0:4,num_lines_2d))
     if(.not.allocated(nodes_in_line)) allocate (nodes_in_line(3,0:3,num_lines_2d))
     if(.not.allocated(scale_factors_2d)) allocate(scale_factors_2d(16,num_elems_2d))
-    if(.not.allocated(arclength)) allocate(arclength(3,num_lines_2d)) 
+    if(.not.allocated(arclength)) allocate(arclength(num_lines_2d)) 
 
     lines_in_elem=0
     lines_2d=0
@@ -659,11 +686,10 @@ contains
 
 !!! fix the boundary conditions for coordinates for nodes with versions, such that
 !!! versions higher than 1 map to version 1     
-    do np=1,num_nodes_2d
-       NV_MAX=node_versn_2d(np)
-       if(NV_MAX>1)then
-          do nv=2,NV_MAX
-             do nj=1,num_coords
+    do np = 1,num_nodes_2d
+       if(node_versn_2d(np).gt.1)then
+          do nv = 2,node_versn_2d(np)
+             do nj = 1,num_coords
                 node_xyz_2d(1,nv,nj,np) = node_xyz_2d(1,1,nj,np)
                 fit_soln(1,nv,nj,np) = fit_soln(1,1,nj,np)
                 ny = nynp(1,nv,nj,np)
@@ -698,7 +724,7 @@ contains
           ny_t = nynp(nk_t,nv_t,nj_t,np_t)
           r_map_coef = REAL(nmap_info(7,node)) !mapping coefficient, +1 or -1
           
-          if(ny > 0) then
+          if(ny.gt.0) then
              nyny(0,ny) = nyny(0,ny)+1 ! increment array size
              nyny(nyny(0,ny),ny) = ny_t
              cyny(0,ny) = 0.0_dp
@@ -810,16 +836,271 @@ contains
 
 !!! ##########################################################################      
 
-  subroutine update_node_in_line()
+  subroutine distribute_surface_node_fit(np_list,nynp,fit_soln,fix_bcs)
 
-    integer :: update_node=90
-    real(dp) :: line_length,location = 0.5_dp, xi_on_line
-    integer :: i,iline_1,iline_2,nline,np,n_xi_dctn=2
+    integer,intent(in) :: np_list(:,:),nynp(:,:,:,:)
+    real(dp) :: fit_soln(:,:,:,:)
+    logical,intent(in) :: fix_bcs(:)
+    ! Local variables
+    integer :: i,in_line,iredist,j,k,line_numbers(20),ne,nline,nlist,nn(4),node_2,np, &
+         np1,np2,np_between(20),np_end,np_start,num_lines,nv,nv1,nv2,n_xi_dctn,ny
+    real(dp) :: new_length,new_xyz(20,3),segment_length,sum_length,xi
+
+    iredist = 1
+    distribute_line : do
+       if(np_list(iredist,1).eq.0) exit  distribute_line ! no more lines to distribute
+       np_start = get_local_node_f(2,np_list(iredist,1))
+
+       ! get the start and end nodes, and between nodes
+       np_between = 0
+       i = 1
+       get_line_nodes : do
+          i = i+1
+          if(np_list(iredist,i).eq.0) exit get_line_nodes
+          np_between(i-1) = get_local_node_f(2,np_list(iredist,i))
+       enddo get_line_nodes
+       nlist = i-2
+       np_end = np_between(i-2)
+       
+       ! find the first element that has np_start and np_between(1)
+       find_element : do i = 1,elems_at_node_2d(np_start,0)
+          ne = elems_at_node_2d(np_start,i)
+          if(inlist(np_between(1),elem_nodes_2d(1:4,ne))) exit find_element
+       enddo find_element
+
+       ! get the list of line segments
+       num_lines = 0
+       segment_length = 0.0_dp
+
+       do i = 1,nlist
+          np = np_between(i) ! the next 'between' node
+          do j = 1,num_lines_2d
+             nline = lines_2d(j)
+             if((np_start.eq.nodes_in_line(2,1,nline).and.np.eq.nodes_in_line(3,1,nline)).or.&
+                  (np_start.eq.nodes_in_line(3,1,nline).and.np.eq.nodes_in_line(2,1,nline)))then
+                num_lines = num_lines + 1
+                line_numbers(num_lines) = nline
+                segment_length = segment_length + arclength(nline)
+             endif
+          enddo
+          np_start = np
+       enddo ! i
+       segment_length = segment_length/real(num_lines)
+
+       ! redistribute along the line segments
+       do i = 1,nlist-1
+          node_2 = np_between(i)
+          nline = line_numbers(i)
+          new_length = segment_length*real(i)
+          sum_length = 0.0_dp
+          check_lines: do j = 1,num_lines ! check each line segment
+             if(new_length.gt.sum_length.and.new_length.le. &
+                  sum_length+arclength(line_numbers(j)))then
+                ! in this segment
+                in_line = line_numbers(j)
+                np1 = nodes_in_line(2,1,in_line)
+                np2 = nodes_in_line(3,1,in_line)
+                nv1 = line_versn_2d(1,1,in_line)
+                nv2 = line_versn_2d(2,1,in_line)
+                n_xi_dctn = nodes_in_line(1,0,nline)
+                if(i.gt.1.and.(np1.ne.nodes_in_line(3,1,line_numbers(j-1))))then
+                   xi = 1.0_dp - (new_length-sum_length)/arclength(line_numbers(j))
+                else
+                   xi = (new_length-sum_length)/arclength(line_numbers(j))
+                endif
+                exit check_lines
+             else
+                sum_length = sum_length+arclength(line_numbers(j))
+             endif
+          enddo check_lines
+
+          ! x(xi) = phi_10*x1 + phi_20*x2 + phi_11*x1' + phi_21*x2'
+          new_xyz(i,:) = hermite(1,1,1,xi)*node_xyz_2d(1,nv1,:,np1) + &
+               hermite(2,1,1,xi)*node_xyz_2d(1,nv2,:,np2) + &
+               hermite(1,2,1,xi)*node_xyz_2d(n_xi_dctn+1,nv1,:,np1) + &
+               hermite(2,2,1,xi)*node_xyz_2d(n_xi_dctn+1,nv2,:,np2)
+       enddo ! i
+
+       ! update the node coordinates
+       do i = 1,num_lines-1
+          node_2 = np_between(i)
+          node_xyz_2d(1,1,:,node_2) = new_xyz(i,:)
+          do nv = 1,node_versn_2d(np)
+             do j = 1,3
+                node_xyz_2d(1,nv,j,node_2) = node_xyz_2d(1,1,j,node_2)
+                ny = nynp(1,nv,j,node_2)
+                !if(fix_bcs(ny)) fit_soln(1,nv,j,node_2) = node_xyz_2d(1,nv,j,node_2)
+                fit_soln(1,nv,j,node_2) = node_xyz_2d(1,nv,j,node_2)
+             enddo ! j
+          enddo ! nv
+       enddo
+
+       iredist = iredist + 1
+       
+    enddo distribute_line
+    call calc_arclengths
+    
+  end subroutine distribute_surface_node_fit
+  
+!!! ##########################################################################      
+
+  subroutine distribute_nodes_between(gnode_1,gnode_2,n_xi_dctn)
+    !*distribute_nodes_between*: update the location of all nodes on the line
+    ! in the n_xi_dctn direction between node_1 and node_2, so that they are
+    ! uniformly spread out wrt arclength.
+    
+    integer,intent(in) :: gnode_1,gnode_2,n_xi_dctn
+    ! Local variables
+    integer :: count_checks,i,in_line,j,ne_check,nline,nn,node_1,node_2,np1,np2, &
+         nthline,num_lines,nv1,nv2
+    integer,allocatable :: line_numbers(:)
+    real(dp) :: new_length,new_xyz(100,3),segment_length,sum_length, &
+         total_length,xi
+    logical :: carry_on
+    character(len=60) :: sub_name
+    
+    ! --------------------------------------------------------------------------
+    
+    sub_name = 'distribute_nodes_between'
+    call enter_exit(sub_name,1)
+
+    allocate(line_numbers(num_lines_2d))
+    line_numbers = 0
+    num_lines = 0
+    count_checks = 0
+    carry_on = .true.
+
+    node_1 = get_local_node_f(2,gnode_1)
+    node_2 = get_local_node_f(2,gnode_2)
+
+    if(elems_at_node_2d(node_1,0).eq.0.or.elems_at_node_2d(node_2,0).eq.0) &
+         ! one or both of the nodes is not in an element
+         carry_on = .false.
+
+    ! get a list of all nodes that are on the line between node_1 and node_2
+    if(carry_on)then
+       ne_check = elems_at_node_2d(node_1,1)
+       do i = 1,4
+          if(node_1.eq.elem_nodes_2d(i,ne_check)) nn = i
+       enddo
+       if(nn.eq.1.and.n_xi_dctn.eq.1)then
+          nthline = 1
+          num_lines = num_lines + 1
+          line_numbers(num_lines) = elem_lines_2d(nthline,ne_check)
+       else if(nn.eq.1.and.n_xi_dctn.eq.2)then
+          nthline = 3
+          num_lines = num_lines + 1
+          line_numbers(num_lines) = elem_lines_2d(nthline,ne_check)
+       else if(nn.eq.2.and.n_xi_dctn.eq.1)then
+          nthline = 1
+       else if(nn.eq.2.and.n_xi_dctn.eq.2)then
+          nthline = 4
+          num_lines = num_lines + 1
+          line_numbers(num_lines) = elem_lines_2d(nthline,ne_check)
+       else if(nn.eq.3.and.n_xi_dctn.eq.1)then
+          nthline = 2
+          num_lines = num_lines + 1
+          line_numbers(num_lines) = elem_lines_2d(nthline,ne_check)
+       else if(nn.eq.3.and.n_xi_dctn.eq.2)then
+          nthline = 3
+       else if(nn.eq.4.and.n_xi_dctn.eq.1)then
+          nthline = 2
+       else if(nn.eq.4.and.n_xi_dctn.eq.2)then
+          nthline = 4
+       endif
+
+       if(num_lines.eq.1)then ! check that we don't just have one line!
+          nline = line_numbers(num_lines)
+          if(nodes_in_line(3,1,nline).eq.node_2) carry_on = .false.
+       endif
+       
+       ne_check = elem_cnct_2d(n_xi_dctn,1,ne_check)
+       
+       do while(carry_on)
+          nline = elem_lines_2d(nthline,ne_check)
+          if(nodes_in_line(3,1,nline).eq.node_2)then
+             num_lines = num_lines + 1
+             line_numbers(num_lines) = elem_lines_2d(nthline,ne_check)
+             carry_on = .false.
+          else
+             ! for collapsed elements, go to the next one
+             do while (nodes_in_line(2,1,nline).eq.nodes_in_line(3,1,nline))
+                ne_check = elem_cnct_2d(n_xi_dctn,1,ne_check)
+                nline = elem_lines_2d(nthline,ne_check)
+             enddo
+             num_lines = num_lines + 1
+             line_numbers(num_lines) = elem_lines_2d(nthline,ne_check)
+             count_checks = count_checks + 1
+             if(count_checks.gt.num_elems_2d) carry_on = .false.
+             ne_check = elem_cnct_2d(n_xi_dctn,1,ne_check)
+          endif
+       enddo ! while
+    endif
+
+    total_length = 0.0_dp
+    do i = 1,num_lines
+       nline = line_numbers(i)
+       total_length = total_length + arclength(nline)
+    enddo ! nline
+    segment_length = total_length/real(num_lines)
+
+    do i = 1,num_lines-1
+       nline = line_numbers(i)
+       node_2 = nodes_in_line(3,1,nline)
+       new_length = segment_length*real(i)
+       sum_length = 0.0_dp
+       check_lines: do j = 1,num_lines ! check each line segment
+          if(new_length.gt.sum_length.and.new_length.le. &
+               sum_length+arclength(line_numbers(j)))then
+             ! in this segment
+             in_line = line_numbers(j)
+             xi = (new_length-sum_length)/arclength(line_numbers(j))
+             np1 = nodes_in_line(2,1,in_line)
+             np2 = nodes_in_line(3,1,in_line)
+             nv1 = line_versn_2d(1,1,in_line)
+             nv2 = line_versn_2d(2,1,in_line)
+             exit check_lines
+          else
+             sum_length = sum_length+arclength(line_numbers(j))
+          endif
+       enddo check_lines
+
+       ! x(xi) = phi_10*x1 + phi_20*x2 + phi_11*x1' + phi_21*x2'
+       new_xyz(i,:) = hermite(1,1,1,xi)*node_xyz_2d(1,nv1,:,np1) + &
+            hermite(2,1,1,xi)*node_xyz_2d(1,nv2,:,np2) + &
+            hermite(1,2,1,xi)*node_xyz_2d(n_xi_dctn+1,nv1,:,np1) + &
+            hermite(2,2,1,xi)*node_xyz_2d(n_xi_dctn+1,nv2,:,np2)
+          
+    enddo
+
+    do i = 1,num_lines-1
+       nline = line_numbers(i)
+       node_2 = nodes_in_line(3,1,nline)
+       node_xyz_2d(1,1,:,node_2) = new_xyz(i,:)
+       forall (j=1:6) node_xyz_2d(1,j,:,node_2) = node_xyz_2d(1,1,:,node_2)
+    enddo
+    
+    deallocate(line_numbers)
+    
+    call enter_exit(sub_name,2)
+    
+  end subroutine distribute_nodes_between
+
+!!! ##########################################################################      
+
+  subroutine centre_a_node(update_node,n_xi_dctn)
+    !*centre_a_node*: updates the coordinates of the given node so that it sits
+    ! at xi between the two adjacent nodes in the n_xi_dctn direction
+
+    integer,intent(in) :: n_xi_dctn,update_node
+    ! Local variables
+    integer :: i,iline_1,iline_2,nj,nline,np,np1,np2,nv,nv1,nv2
+    real(dp) :: line_length,line_xyz(2,3,2),location = 0.5_dp, new_xyz(3),xi_on_line
     character(len=60) :: sub_name
     
     ! --------------------------------------------------------------------------
 
-    sub_name = 'update_node_in_line'
+    sub_name = 'centre_a_node'
     call enter_exit(sub_name,1)
 
     np = get_local_node_f(2,update_node)
@@ -830,7 +1111,7 @@ contains
        if(nodes_in_line(1,0,nline).eq.n_xi_dctn)then ! only check lines in the right Xi direction
           if(nodes_in_line(3,1,nline).eq.np.or. &
                nodes_in_line(2,1,nline).eq.np)then
-             line_length = line_length + arclength(1,i) ! calculated the total arclength
+             line_length = line_length + arclength(i) ! calculated the total arclength
              if(nodes_in_line(3,1,nline).eq.np) iline_1 = i  ! np is the second node
              if(nodes_in_line(2,1,nline).eq.np) iline_2 = i
           endif
@@ -838,15 +1119,37 @@ contains
     enddo
 
     line_length = line_length * location ! get the arclength for the adjusted node
-    if(line_length.le.arclength(1,iline_1))then
-       xi_on_line = line_length/arclength(1,iline_1)
+    if(line_length.le.arclength(iline_1))then
+       xi_on_line = line_length/arclength(iline_1)
+       nline = iline_1
     else
-       xi_on_line = (arclength(1,iline_2)-line_length)/arclength(1,iline_2)
+       xi_on_line = (arclength(iline_2)-line_length)/arclength(iline_2)
+       nline = iline_2
     endif
+
+    np1 = nodes_in_line(2,1,iline_1)
+    np2 = nodes_in_line(3,1,iline_1)
+    nv1 = line_versn_2d(1,1,iline_1)
+    nv2 = line_versn_2d(2,1,iline_1)
+    line_xyz(1,:,1) = node_xyz_2d(1,1,:,np1)
+    line_xyz(1,:,2) = node_xyz_2d(1,1,:,np2)
+    line_xyz(2,:,1) = node_xyz_2d(n_xi_dctn+1,nv1,:,np1)
+    line_xyz(2,:,2) = node_xyz_2d(n_xi_dctn+1,nv2,:,np2)
+    
+    ! x(xi) = phi_10*x1 + phi_20*x2 + phi_11*x1' + phi_21*x2'
+    new_xyz(:) = hermite(1,1,1,xi_on_line)*line_xyz(1,:,1) + &
+         hermite(2,1,1,xi_on_line)*line_xyz(1,:,2) + &
+         hermite(1,2,1,xi_on_line)*line_xyz(2,:,1) + &
+         hermite(2,2,1,xi_on_line)*line_xyz(2,:,2)
+
+    do nv = 1,node_versn_2d(np)
+       node_xyz_2d(1,nv,:,np) = new_xyz(:)
+    enddo
+    write(*,'(''Node adjusted = '',3(f9.2))') node_xyz_2d(1,1,:,np)
 
     call enter_exit(sub_name,2)
 
-  end subroutine update_node_in_line
+  end subroutine centre_a_node
   
 !!! ##########################################################################      
 
@@ -865,7 +1168,7 @@ contains
     
     psi1 = 1.0_dp
     do ni=1,2
-       psi1 = psi1*ph3(inp(nn,ni),ido(nk,ni),ipu(nu,ni),xi(ni))
+       psi1 = psi1*hermite(inp(nn,ni),ido(nk,ni),ipu(nu,ni),xi(ni))
     enddo
 
   end function psi1
@@ -1633,6 +1936,8 @@ contains
 ! doesn't like allocating these! gives different answer for errors
 !    real(dp),allocatable :: GKK(:)
 !    real(dp),allocatable :: GK(:)
+    integer :: np_temp,i
+
     character(len=60) :: sub_name
     
     ! --------------------------------------------------------------------------
@@ -1649,6 +1954,14 @@ contains
     allocate(GRR(num_depvar))
 !    allocate(GK(num_depvar*num_depvar))
 !    allocate(GKK(num_depvar*num_depvar))
+
+    !*** Calculate solution mapping arrays for the current fit variable
+    call globalf(nony,not_1,not_2,npny,nyno,nynp,nyny,cony,cyno,cyny,fix_bcs)
+    
+    if(NOT_2.EQ.0) then
+       write(*,'('' >>The number of unknowns is zero'')')
+       stop
+    endif
 
     FIRST_A = .TRUE.
     
@@ -1678,14 +1991,6 @@ contains
           enddo !nh2
        enddo !nh1
     enddo !l (ne)
-    
-    !*** Calculate solution mapping arrays for the current fit variable
-    call globalf(nony,not_1,not_2,npny,nyno,nynp,nyny,cony,cyno,cyny,fix_bcs)
-    
-    if(NOT_2.EQ.0) then
-       write(*,'('' >>The number of unknowns is zero'')')
-       stop
-    endif
     
     !----------------------- generate reduced system -----------------------
     
@@ -1717,7 +2022,7 @@ contains
     
     !-------------- solve reduced system of linear equations ---------------
     call solve_fit_system(NOT_1,NOT_2,num_depvar,GKK,GRR,incr_soln)
-    
+
     do no1 = 1,NOT_2 ! for each unknown
        do nyo1 = 1,nyno(0,no1,1)
           ny1 = nyno(nyo1,no1,1) ! the dependent variable number
@@ -1726,8 +2031,8 @@ contains
           nv = npny(2,ny1)       ! version number
           nh = npny(3,ny1)       ! dependent variable number
           np = npny(4,ny1)       ! node number
-          fit_soln(nk,nv,nh,np) = fit_soln(nk,nv,nh,np) + incr_soln(no1)*co1 
-          ! current fit solution = previous + increment
+          !current fit solution =        previous       +     increment
+          fit_soln(nk,nv,nh,np) = fit_soln(nk,nv,nh,np) + incr_soln(no1)*co1
        enddo !nyo1
     enddo !no1
 
