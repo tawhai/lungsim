@@ -12,6 +12,7 @@ void define_mesh_geometry_test_c(void);
 void define_node_geometry_c(const char *NODEFILE, int *filename_len);
 void define_node_geometry_2d_c(const char *NODEFILE, int *filename_len);
 void define_data_geometry_c(const char *DATAFILE, int *filename_len);
+extern void enclosed_volume_c(int *elemlist_len, int surface_elems[]);
 void group_elem_parent_term_c(int *ne_parent);
 void import_node_geometry_2d_c(const char *NODEFILE, int *filename_len);
 void make_data_grid_c(int *surface_elems, double *spacing, int *to_export, const char *filename, int *filename_len, const char *groupname, int *groupname_len);
@@ -80,6 +81,10 @@ void define_data_geometry(const char *DATAFILE)
   int filename_len = (int)strlen(DATAFILE);
   define_data_geometry_c(DATAFILE, &filename_len);
 }
+void enclosed_volume(int elemlist_len, int surface_elems[])
+{
+  enclosed_volume_c(&elemlist_len, surface_elems);
+}
 
 void group_elem_parent_term(int ne_parent)
 {
@@ -101,7 +106,7 @@ void make_data_grid(int surface_elems, double spacing, int to_export, const char
 
 void make_2d_vessel_from_1d(int elemlist_len, int elemlist[])
 {
-  make_2d_vessel_from_1d_c(elemlist, &elemlist_len);
+  make_2d_vessel_from_1d_c(&elemlist_len, elemlist);
 }
 
 void define_rad_from_file(const char *FIELDFILE, const char *radius_type)

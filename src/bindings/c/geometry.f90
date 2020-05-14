@@ -157,6 +157,22 @@ contains
 !
 !###################################################################################
 !
+  subroutine enclosed_volume_c(elemlist_len, surface_elems) bind(C, name="enclosed_volume_c")
+    use geometry, only: enclosed_volume
+    implicit none
+
+    integer,intent(in) :: elemlist_len
+    integer,intent(in) :: surface_elems(elemlist_len)
+    
+#if defined _WIN32 && defined __INTEL_COMPILER
+    call so_enclosed_volume(surface_elems)
+#else
+    call enclosed_volume(surface_elems)
+#endif
+  end subroutine enclosed_volume_c
+!
+!###################################################################################
+!
   subroutine make_data_grid_c(surface_elems, spacing, to_export, filename, filename_len, groupname, groupname_len)&
  bind(C, name="make_data_grid_c")
     
@@ -188,7 +204,7 @@ contains
 
 !!!###################################################################################
 
-  subroutine make_2d_vessel_from_1d_c(elemlist, elemlist_len) bind(C, name="make_2d_vessel_from_1d_c")
+  subroutine make_2d_vessel_from_1d_c(elemlist_len, elemlist ) bind(C, name="make_2d_vessel_from_1d_c")
     use geometry, only: make_2d_vessel_from_1d
     implicit none
 

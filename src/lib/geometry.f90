@@ -34,6 +34,7 @@ module geometry
   public define_node_geometry
   public define_node_geometry_2d
   public define_data_geometry
+  public enclosed_volume
   public group_elem_parent_term
   public define_rad_from_file
   public define_rad_from_geom
@@ -1180,7 +1181,7 @@ contains
     real(dp),allocatable :: vertex_xyz(:,:)
     ! Local variables
     integer,parameter :: ndiv = 3
-    integer :: i,index1,index2,j,ne,nmax_1,nmax_2,num_surfaces, &
+    integer :: i,index1,index2,j,ne,nelem,nmax_1,nmax_2,num_surfaces, &
          num_tri_vert,nvertex_row,step_1,step_2
     real(dp) :: X(3),xi(3)
     logical :: four_nodes
@@ -1201,7 +1202,9 @@ contains
     num_vertices = 0
     num_tri_vert = 0 
 
-    do ne=1,num_elems_2d
+!    do ne = 1,num_elems_2d
+    do nelem = 1,num_surfaces
+       ne = surface_elems(nelem)
        four_nodes = .false.
        repeat = '0_0'
        if(elem_nodes_2d(1,ne).eq.elem_nodes_2d(2,ne)) repeat = '1_0'
@@ -1296,7 +1299,7 @@ contains
     enddo
     
     write(*,'('' Made'',I8,'' triangles to cover'',I6,'' surface elements'')') &
-         num_triangles,num_elems_2d
+         num_triangles,num_surfaces !num_elems_2d
     
     call enter_exit(sub_name,2)
     
@@ -3626,6 +3629,30 @@ contains
     
   end subroutine geo_node_offset
   
+!!!#############################################################################
+
+  subroutine enclosed_volume(surface_elems)
+    !*enclosed_volume:* estimates the volume that is inside a list of bounding
+    ! surface elements
+    !DEC$ ATTRIBUTES DLLEXPORT,ALIAS:"SO_ENCLOSED_VOLUME" :: ENCLOSED_VOLUME
+
+    integer,intent(in) :: surface_elems(:)
+    ! Local variables
+    integer :: num_triangles,num_vertices
+    integer,allocatable :: triangle(:,:)
+    real(dp) :: volume
+    real(dp),allocatable :: vertex_xyz(:,:)
+
+    call triangles_from_surface(num_triangles,num_vertices,surface_elems, &
+       triangle,vertex_xyz)
+    volume = volume_internal_to_surface(triangle,vertex_xyz)
+    write(*,'('' Enclosed volume = '',f9.2,'' mm^3'')') volume
+
+    deallocate(triangle)
+    deallocate(vertex_xyz)
+    
+  end subroutine enclosed_volume
+
 !!!#############################################################################
 
   subroutine group_elem_parent_term(ne_parent)
