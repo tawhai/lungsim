@@ -35,7 +35,7 @@ module indices
        nu_vd,nu_perf,nu_blood_press
   !indices for gas exchange field
   ! indices for gasex_field
-  integer,parameter :: num_gx = 12
+  integer,parameter :: num_gx = 13
   integer,parameter :: ng_p_alv_o2=1      ! index for alveolar partial pressure of O2
   integer,parameter :: ng_p_alv_co2=2     ! index for alveolar partial pressure of CO2
   integer,parameter :: ng_p_ven_o2=3      ! index for local venous partial pressure of O2
@@ -48,6 +48,7 @@ module indices
   integer,parameter :: ng_sa=10           ! index for unit's capillary surface area
   integer,parameter :: ng_tt=11           ! index for transit time in unit
   integer,parameter :: ng_time=12         ! index for time elapsed for RBC in capillaries
+  integer,parameter :: ng_Qdot=13         ! index for unit's blood flow
   
   !model type
   character(len=60) :: model_type
@@ -69,14 +70,15 @@ module indices
   
   public num_gx, ng_p_alv_o2,ng_p_alv_co2,ng_p_ven_o2,ng_p_ven_co2, &
        ng_p_cap_o2, ng_p_cap_co2,ng_source_o2,ng_source_co2, &
-       ng_Vc, ng_sa, ng_tt, ng_time
+       ng_Vc, ng_sa, ng_tt, ng_time, ng_Qdot
   
   
   public model_type
   
   !Interfaces
   private
-  public define_problem_type,ventilation_indices, perfusion_indices, get_ne_radius, get_nj_conc1, &
+  public define_problem_type,exchange_indices,ventilation_indices, &
+       perfusion_indices, get_ne_radius, get_nj_conc1, &
        growing_indices
   
 contains
@@ -117,7 +119,7 @@ contains
   
   !>Gas mixing indices
   subroutine exchange_indices
-    !DEC$ ATTRIBUTES DLLEXPORT,ALIAS:"SO_GASMIX_INDICES" :: GASMIX_INDICES
+    !DEC$ ATTRIBUTES DLLEXPORT,ALIAS:"SO_EXCHANGE_INDICES" :: EXCHANGE_INDICES
     
     character(len=60) :: sub_name
     

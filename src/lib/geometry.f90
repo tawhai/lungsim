@@ -3072,9 +3072,10 @@ contains
     integer,intent(in) :: Gdirn
     real(dp),intent(in) :: COV,total_volume,Rmax,Rmin
     !     Local parameters
-    integer :: ne,np2,nunit
-    real(dp) ::  factor_adjust,max_z,min_z,random_number,range_z,&
-         volume_estimate,volume_of_tree,Vmax,Vmin,Xi
+    integer :: ne,np2,nunit,xyz_index
+    real(dp) ::  factor_adjust,max_z,min_z,rando,range_z,&
+         volume_estimate,volume_of_tree,Vmax,Vmean,Vmin,Xi,xyz_multiply
+    real(dp),allocatable :: random_list(:)
     character(len=60) :: sub_name
 
     ! --------------------------------------------------------------------------
@@ -3082,47 +3083,61 @@ contains
     sub_name = 'set_initial_volume'
     call enter_exit(sub_name,1)
     
+    xyz_index = abs(Gdirn)
+    if(Gdirn.lt.0)then
+       xyz_multiply = -1.0_dp
+    else
+       xyz_multiply = 1.0_dp
+    endif
+
     volume_estimate = 1.0_dp
     volume_of_tree = 0.0_dp
     
     call volume_of_mesh(volume_estimate,volume_of_tree)
     
-    random_number=-1.1_dp
-    
     Vmax = Rmax * (total_volume-volume_estimate)/elem_units_below(1)
     Vmin = Rmin * (total_volume-volume_estimate)/elem_units_below(1)
     
-!!! for each elastic unit find the maximum and minimum coordinates in the Gdirn direction
-    max_z=-1.0e+6_dp
-    min_z=1.0e+6_dp
-    do nunit=1,num_units
-       ne=units(nunit)
-       np2=elem_nodes(2,ne)
-       max_z=MAX(max_z,node_xyz(Gdirn,np2))
-       min_z=MIN(min_z,node_xyz(Gdirn,np2))
-    enddo !nunit
+    if(abs(Vmax-Vmin) < 1e-6_dp)then ! all the same
+       unit_field(nu_vol,1:num_units) = Vmax
+    else        
+!!! find the maximum and minimum coordinates in the Gdirn direction
+       max_z = -1.0e+6_dp
+       min_z = 1.0e+6_dp
+       do nunit = 1,num_units
+          ne = units(nunit)
+          np2 = elem_nodes(2,ne)
+          max_z = max(max_z,xyz_multiply*node_xyz(xyz_index,np2))
+          min_z = min(min_z,xyz_multiply*node_xyz(xyz_index,np2))
+       enddo !nunit
     
-    range_z=abs(max_z-min_z)
-    if(abs(range_z).le.1.0e-5_dp) range_z=1.0_dp
-    
+       range_z = abs(max_z-min_z)
+       if(abs(range_z).le.1.0e-5_dp) range_z = 1.0_dp
+
 !!! for each elastic unit allocate a size based on a gradient in the Gdirn direction, and
-!!! perturb by a user-defined COV. This should be calling a random number generator.
-    do nunit=1,num_units
-       ne=units(nunit)
-       np2=elem_nodes(2,ne) !end node
-       Xi=(node_xyz(Gdirn,np2)-min_z)/range_z
-       random_number=random_number+0.1_dp
-       if(random_number.GT.1.0_dp) random_number=-1.1_dp
-       unit_field(nu_vol,nunit)=(Vmax*Xi+Vmin*(1.0_dp-Xi))*(1.0_dp+COV*random_number)
-       unit_field(nu_vt,nunit)=0.0_dp !initialise the tidal volume to a unit
-    enddo !nunit
+!!! perturb by a user-defined COV.
+       allocate(random_list(2*num_units))
+       call random_number(random_list) ! returns pseudorandom numbers with uniform distribution (0-1)
+       do nunit = 1,num_units
+          ne = units(nunit)
+          np2 = elem_nodes(2,ne) !end node
+          Xi = (xyz_multiply*node_xyz(xyz_index,np2)-min_z)/range_z
+          ! use Box-Muller transform to generate random numbers with normal distribution
+          rando = sqrt(-2.0_dp * log(random_list(nunit))) * &
+               cos(2.0_dp*pi*random_list(nunit+num_units))
+          Vmean = Vmax*Xi+Vmin*(1.0_dp-Xi)
+          unit_field(nu_vol,nunit) = max(0.1_dp*Vmean,Vmean*(1.0_dp + rando*COV))
+       enddo !nunit
+       deallocate(random_list)
+    endif
+
+    unit_field(nu_vt,1:num_units) = 0.0_dp
     
     ! correct unit volumes such that total volume is exactly as specified
     call volume_of_mesh(volume_estimate,volume_of_tree)
     factor_adjust = (total_volume-volume_of_tree)/(volume_estimate-volume_of_tree)
-    do nunit=1,num_units
-       unit_field(nu_vol,nunit) = unit_field(nu_vol,nunit)*factor_adjust
-    enddo
+    unit_field(nu_vol,1:num_units) = unit_field(nu_vol,1:num_units)*factor_adjust
+    call volume_of_mesh(volume_estimate,volume_of_tree)
     
     write(*,'('' Number of elements is '',I5)') num_elems
     write(*,'('' Initial volume is '',F6.2,'' L'')') total_volume/1.0e+6_dp

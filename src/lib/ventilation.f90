@@ -120,13 +120,16 @@ contains
     unit_field(nu_dpdt,1:num_units) = 0.0_dp
 
 !!! calculate the compliance of each tissue unit
-    call tissue_compliance(chest_wall_compliance,undef)
-    totalc = SUM(unit_field(nu_comp,1:num_units)) !the total model compliance
+    call tissue_compliance(undef)
+    totalc = sum(unit_field(nu_comp,1:num_units)) !the total model compliance
+!!!MHT! change to following
+!!!MHT!     totalC = totalC + unit_field(nu_comp,nunit)*units_effective(nunit)*98.0665_dp/1.0e+3_dp
     call update_pleural_pressure(ppl_current) !calculate new pleural pressure
-    pptrans=SUM(unit_field(nu_pe,1:num_units))/num_units
+    pptrans = sum(unit_field(nu_pe,1:num_units))/num_units
 
     chestwall_restvol = init_vol + chest_wall_compliance * (-ppl_current)
     Pcw = (chestwall_restvol - init_vol)/chest_wall_compliance
+!!!MHT!     Pcw_frc = Pcw
     write(*,'('' Chest wall RV = '',F8.3,'' L'')') chestwall_restvol/1.0e+6_dp
         
     call write_flow_step_results(chest_wall_compliance,init_vol, &
@@ -138,7 +141,7 @@ contains
        ttime = 0.0_dp ! each breath starts with ttime=0
        endtime = (Tinsp + Texpn) * n - 0.5_dp * dt ! the end time of this breath
        p_mus = 0.0_dp 
-       ptrans_frc = SUM(unit_field(nu_pe,1:num_units))/num_units !ptrans at frc
+       ptrans_frc = sum(unit_field(nu_pe,1:num_units))/num_units !ptrans at frc
 
        if(n.gt.1)then !write out 'end of breath' information
           call write_end_of_breath(init_vol,current_vol,pmus_factor_in, &
@@ -198,8 +201,6 @@ contains
     call sum_elem_field_from_periphery(ne_Vdot)
     elem_field(ne_Vdot,1:num_elems) = &
          elem_field(ne_Vdot,1:num_elems)/elem_field(ne_Vdot,1)
-
-!    call export_terminal_solution(TERMINAL_EXNODEFILE,'terminals')
 
     call enter_exit(sub_name,2)
 
@@ -278,7 +279,7 @@ contains
     call volume_of_mesh(current_vol,volume_tree) ! calculate mesh volume
     call update_elem_field(1.0_dp)
     call update_resistance  !update element lengths, volumes, resistances
-    call tissue_compliance(chest_wall_compliance,undef) ! unit compliances
+    call tissue_compliance(undef) ! unit compliances
     totalc = SUM(unit_field(nu_comp,1:num_units)) !the total model compliance
     call update_proximal_pressure ! pressure at proximal nodes of end branches
     call calculate_work(current_vol-init_vol,current_vol-last_vol,WOBe,WOBr, &
@@ -515,9 +516,9 @@ contains
 
 !!!#############################################################################
 
-  subroutine tissue_compliance(chest_wall_compliance,undef)
+  subroutine tissue_compliance(undef)
 
-    real(dp), intent(in) :: chest_wall_compliance,undef
+    real(dp), intent(in) :: undef
     ! Local variables
     integer :: ne,nunit
     real(dp),parameter :: a = 0.433_dp, b = -0.611_dp, cc = 2500.0_dp
@@ -526,7 +527,7 @@ contains
 
     ! --------------------------------------------------------------------------
 
-    sub_name = 'update_tissue_compliance'
+    sub_name = 'tissue_compliance'
     call enter_exit(sub_name,1)
 
     !.....dV/dP=1/[(1/2h^2).c/2.(3a+b)exp().(4h(h^2-1)^2)+(h^2+1)/h^2)]
@@ -542,9 +543,6 @@ contains
             *(lambda**2-1.0_dp)**2/lambda**2+(3.0_dp*a+b) &
             *(lambda**2+1.0_dp)/lambda**4)
        unit_field(nu_comp,nunit) = undef/unit_field(nu_comp,nunit) ! V/P
-       ! add the chest wall (proportionately) in parallel
-       unit_field(nu_comp,nunit) = 1.0_dp/(1.0_dp/unit_field(nu_comp,nunit)&
-            +1.0_dp/(chest_wall_compliance/dble(num_units)))
        !estimate an elastic recoil pressure for the unit
        unit_field(nu_pe,nunit) = cc/2.0_dp*(3.0_dp*a+b)*(lambda**2.0_dp &
             -1.0_dp)*exp_term/lambda

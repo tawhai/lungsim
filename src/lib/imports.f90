@@ -94,7 +94,7 @@ contains
    enddo
 
 !!! sum the fields up the tree
-   call sum_elem_field_from_periphery(ne_Qdot) !sum the air flows recursively UP the tree
+   call sum_elem_field_from_periphery(ne_Qdot) !sum the flows recursively UP the tree
    maxflow = elem_field(ne_Qdot,1)
 
    call enter_exit(sub_name,2)
@@ -113,13 +113,18 @@ contains
    integer :: ierror,ne,nunit
    character(LEN=132) :: ctemp1,exfile
    real(dp) :: flow,flow_unit,maxflow
-
+   character(len=300) :: readfile
    character(len=60) :: sub_name
 
    sub_name = 'import_exelemfield'
    call enter_exit(sub_name,1)
 
-   open(10, file=FLOWFILE, status='old')
+    if(index(FLOWFILE, ".exelem")> 0) then !full filename is given
+       readfile = FLOWFILE
+    else ! need to append the correct filename extension
+       readfile = trim(FLOWFILE)//'.exelem'
+    endif
+   open(10, file=readfile, status='old')
    ne = 0
    read_elem_flow : do !define a do loop name
      !.......read element flow

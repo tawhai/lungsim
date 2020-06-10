@@ -8,6 +8,7 @@ module mesh_utilities
 
 
   use arrays
+  use diagnostics
   use other_consts
 
   implicit none
@@ -20,7 +21,8 @@ module mesh_utilities
        direction_point_to_point,distance_between_points, &
        distance_from_plane_to_point,make_plane_from_3points, &
        mesh_a_x_eq_b,ph3,pl1,point_internal_to_surface,scalar_product_3, &
-       scalar_triple_product,scale_mesh,stem_element,terminal_element, &
+       scalar_triple_product,scale_mesh,stem_element,sum_elem_field_from_periphery, &
+       terminal_element, &
        unit_norm_to_plane_two_vectors,unit_norm_to_three_points,unit_vector, &
        vector_length,volume_internal_to_surface,which_child
 
@@ -105,6 +107,12 @@ contains
     real(dp) :: DA,SUM1,SUM2,SUM3,SUM4,W,WG_LOCAL(10),XA_LOCAL(4,3),XI,&
          XIGG(10),XN_LOCAL(2,3,4)
     logical :: FOUND
+    character(len=60) :: sub_name
+    
+    ! --------------------------------------------------------------------------
+    
+    sub_name = 'calc_scale_factors_2d'
+    call enter_exit(sub_name,1)
     
     XIGG = [0.6_dp,0.2113248654051_dp,0.7886751345948_dp,0.1127016653792_dp,&
          0.6_dp,0.8872983346207_dp,0.0694318442029_dp,0.3300094782075_dp,&
@@ -253,6 +261,8 @@ contains
        enddo !noelem (ne)
     end select
 
+    call enter_exit(sub_name,2)
+
   end subroutine calc_scale_factors_2d
   
 !!!###############################################################
@@ -291,7 +301,12 @@ contains
     !     Local variables
     real(dp) :: DifF1(3),DifF2(3),NORMSIZE
     logical :: COLINEAR
+    character(len=60) :: sub_name
     
+    ! --------------------------------------------------------------------------
+    
+    sub_name = 'make_plane_from_3points'
+    call enter_exit(sub_name,1)
     
     ! Check for colinearity
     COLINEAR=.FALSE.
@@ -316,6 +331,9 @@ contains
        WRITE(*,*) ' COLINEAR points in make_plane_from_3points '
        NORML = 0.0_dp
     endif
+
+    call enter_exit(sub_name,2)
+
   end subroutine make_plane_from_3points
   
 !!!##################################################
@@ -325,6 +343,13 @@ contains
     real(dp),intent(in) :: scaling
     character(len=2),intent(in) :: type
 
+    character(len=60) :: sub_name
+    
+    ! --------------------------------------------------------------------------
+    
+    sub_name = 'scale_mesh'
+    call enter_exit(sub_name,1)
+    
     select case(type)
     case('1d')
        node_xyz = node_xyz * scaling
@@ -335,9 +360,43 @@ contains
     
     scale_factors_2d = 1.0_dp
 
+    call enter_exit(sub_name,2)
+
   end subroutine scale_mesh
 
-!!!##################################################
+!!!###################################################################################
+
+  subroutine sum_elem_field_from_periphery(ne_field)
+
+    integer,intent(in) :: ne_field
+    ! Local parameters
+    integer :: i,ne,ne2
+    real(dp) :: field_value
+    
+    character(len=60) :: sub_name
+    
+    ! --------------------------------------------------------------------------
+    
+    sub_name = 'sum_elem_field_from_periphery'
+    call enter_exit(sub_name,1)
+
+    do ne = num_elems,1,-1
+       if(elem_cnct(1,0,ne).gt.0)then !not terminal
+          field_value = 0.0_dp
+          do i = 1,elem_cnct(1,0,ne) !for each possible daughter branch (maximum 2)
+             ne2 = elem_cnct(1,i,ne) !the daughter element number
+             field_value = field_value+dble(elem_symmetry(ne2))* &
+                  elem_field(ne_field,ne2) !sum daughter fields
+          enddo !noelem2
+          elem_field(ne_field,ne) = field_value
+       endif
+    enddo !noelem
+
+    call enter_exit(sub_name,2)
+
+  end subroutine sum_elem_field_from_periphery
+  
+!!!###################################################################################
   
   function area_between_two_vectors(vect_a,vect_b)
     

@@ -57,7 +57,7 @@ contains
        !Note that as V, Q are prerequisites something needs to be added here that checks
        !these have been read in and if not sets up linear gradient based on some default parameters
        !note a linear q gradient should  be set up to scale for shunt fraction automatically
-       call initial_gasexchange(149.0_dp)
+       call initial_gasexchange(149.0_dp,149.0_dp,40.0_dp,0.02_dp,8.333e+4_dp)
        call solve_transport
 
     end select
@@ -72,6 +72,7 @@ contains
 
    !local variables
    real(dp) c_art_o2, c_ven_o2,p_art_co2,p_art_o2, p_ven_co2,p_ven_o2
+   real(dp) :: cardiac_output = 83333.33_dp, Vdot_alv = 6.5e4_dp
 
    character(len=60) :: sub_name
 
@@ -94,7 +95,7 @@ contains
        p_ven_co2=45.0_dp
        p_art_o2=100.0_dp
        p_ven_o2=40.0_dp
-       call steadystate_gasexchange(c_art_o2,c_ven_o2,&
+       call steadystate_gasexchange(cardiac_output,Vdot_alv,c_art_o2,c_ven_o2,&
        p_art_co2,p_art_o2,149.0_dp,p_ven_co2,p_ven_o2,0.03_dp,&
        0.8_dp*(260.0_dp*1.0e+3_dp/60.0_dp),260.0_dp*1.0e+3_dp/60.0_dp )
 

@@ -40,7 +40,21 @@ contains
 #endif
 
   end subroutine ventilation_indices_c
-!
+
+  !> exchange indices
+  subroutine exchange_indices_c() bind(C, name="exchange_indices_c")
+
+    use indices, only: exchange_indices
+    implicit none
+
+#if defined _WIN32 && defined __INTEL_COMPILER
+    call so_exchange_indices()
+#else
+    call exchange_indices()
+#endif
+
+  end subroutine exchange_indices_c
+  !
 !######################################################################
 !
 !> Perfusion indices
