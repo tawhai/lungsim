@@ -559,7 +559,7 @@ contains
     call evaluate_ordering
 
     elem_ordrs(no_type,:) = 1 ! 0 for respiratory, 1 for conducting
-
+    
     call enter_exit(sub_name,2)
 
   end subroutine define_1d_elements
