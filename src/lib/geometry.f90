@@ -34,17 +34,21 @@ module geometry
   public define_node_geometry
   public define_node_geometry_2d
   public define_data_geometry
+  public enclosed_volume
   public group_elem_parent_term
   public define_rad_from_file
   public define_rad_from_geom
   public element_connectivity_1d
   public element_connectivity_2d
+  public import_node_geometry_2d
   public inlist
   public evaluate_ordering
   public get_final_real
+  public get_local_elem
   public get_local_node_f
   public make_data_grid
   public make_2d_vessel_from_1d
+  public merge_2d_element
   public reallocate_node_elem_arrays
   public set_initial_volume
   public triangles_from_surface
@@ -932,7 +936,7 @@ contains
     
 !!!allocate memory to arrays that require node number
     if(.not.allocated(nodes_2d)) allocate(nodes_2d(num_nodes_2d))
-    if(.not.allocated(node_xyz_2d)) allocate(node_xyz_2d(4,10,16,num_nodes_2d))
+    if(.not.allocated(node_xyz_2d)) allocate(node_xyz_2d(4,10,3,num_nodes_2d))
     if(.not.allocated(node_versn_2d)) allocate(node_versn_2d(num_nodes_2d))
     
     !.....read the coordinate, derivative, and version information for each node. 
@@ -994,6 +998,87 @@ contains
 
 !!!#############################################################################
 
+  subroutine import_node_geometry_2d(NODEFILE)
+    !*define_node_geometry_2d:* Reads in an exnode file to define surface nodes
+    !DEC$ ATTRIBUTES DLLEXPORT,ALIAS:"SO_DEFINE_NODE_GEOMETRY_2D" :: DEFINE_NODE_GEOMETRY_2D
+    
+    character(len=*),intent(in) :: NODEFILE
+    !     Local Variables
+    integer :: i,ierror,index_location,np,np_global,num_versions,nv
+    character(len=132) :: ctemp1,readfile
+    character(len=60) :: sub_name
+    
+    ! --------------------------------------------------------------------------
+    
+    sub_name = 'import_node_geometry_2d'
+    call enter_exit(sub_name,1)
+    
+    if(index(NODEFILE, ".exnode")> 0) then !full filename is given
+       readfile = NODEFILE
+    else ! need to append the correct filename extension
+       readfile = trim(NODEFILE)//'.exnode'
+    endif
+    
+    open(10, file=readfile, status='old')
+
+    !.....get the total number of nodes.
+    num_nodes_2d = 0
+    read_number_of_nodes : do !define a do loop name
+       read(unit=10, fmt="(a)", iostat=ierror) ctemp1 !read a line into ctemp1
+       if(ierror<0) exit !ierror<0 means end of file
+       if(index(ctemp1, "Node:")> 0) then !keyword "Node:" is found in ctemp1
+          num_nodes_2d = num_nodes_2d+1
+       endif
+    end do read_number_of_nodes
+    close(10)
+
+!!!allocate memory to arrays that require node number
+    if(.not.allocated(nodes_2d)) allocate(nodes_2d(num_nodes_2d))
+    if(.not.allocated(node_xyz_2d)) allocate(node_xyz_2d(4,10,3,num_nodes_2d))
+    if(.not.allocated(node_versn_2d)) allocate(node_versn_2d(num_nodes_2d))
+    nodes_2d = 0
+    node_xyz_2d = 0.0_dp
+    node_versn_2d = 0
+    
+    !.....read the coordinate, derivative, and version information for each node. 
+    open(10, file=readfile, status='old')
+    np = 0
+    num_versions = 1
+    read_a_node : do !define a do loop name
+       !.......read node number
+       read(unit=10, fmt="(a)", iostat=ierror) ctemp1
+       if(index(ctemp1, "Derivatives") > 0)then
+          index_location = index(ctemp1, "Versions")
+          if(index_location > 0) then
+             read(ctemp1(index_location+9:index_location+10), '(i2)', iostat=ierror) num_versions
+          else
+             num_versions = 1  ! the default
+          endif
+       endif
+       if(index(ctemp1, "Node:")> 0) then
+          np_global = get_final_integer(ctemp1) !get node number
+          np = np+1
+          nodes_2d(np) = np_global
+          node_versn_2d(np) = num_versions
+          
+          !.......read coordinates
+          do i =1,3 ! for the x,y,z coordinates
+             do nv = 1,node_versn_2d(np)
+                read(unit=10, fmt=*, iostat=ierror) node_xyz_2d(1:4,nv,i,np)
+             end do !nv
+          end do !i
+       endif !index
+       if(np.ge.num_nodes_2d) exit read_a_node
+    end do read_a_node
+    
+    close(10)
+    
+    call enter_exit(sub_name,2)
+    
+  end subroutine import_node_geometry_2d
+
+!!!#############################################################################
+
   subroutine define_data_geometry(datafile)
     !*define_data_geometry:* reads data points from a file
     !DEC$ ATTRIBUTES DLLEXPORT,ALIAS:"SO_DEFINE_DATA_GEOMETRY" :: DEFINE_DATA_GEOMETRY
@@ -1009,13 +1094,18 @@ contains
     sub_name = 'define_data_geometry'
     call enter_exit(sub_name,1)
     
+    if(index(datafile, ".ipdata")> 0) then !full filename is given
+       readfile = datafile
+    else ! need to append the correct filename extension
+       readfile = trim(datafile)//'.ipdata'
+    endif
+    
+    open(10, file=readfile, status='old')
+    read(unit=10, fmt="(a)", iostat=ierror) buffer
+
     !set the counted number of data points to zero
     ncount = 0
-    
-    !readfile = trim(datafile)//'.ipdata'
-    open(10, file=datafile, status='old')
-    read(unit=10, fmt="(a)", iostat=ierror) buffer
-    
+
 !!! first run through to count the number of data points
     read_line_to_count : do
        read(unit=10, fmt="(a)", iostat=ierror) buffer
@@ -1033,8 +1123,7 @@ contains
     allocate(data_weight(3,num_data))
     
 !!! read the data point information
-    !readfile = trim(datafile)//'.ipdata'
-    open(10, file=datafile, status='old')
+    open(10, file=readfile, status='old')
     read(unit=10, fmt="(a)", iostat=ierror) buffer
     
     !set the counted number of data points to zero
@@ -1093,7 +1182,7 @@ contains
     real(dp),allocatable :: vertex_xyz(:,:)
     ! Local variables
     integer,parameter :: ndiv = 3
-    integer :: i,index1,index2,j,ne,nmax_1,nmax_2,num_surfaces, &
+    integer :: i,index1,index2,j,ne,nelem,nmax_1,nmax_2,num_surfaces, &
          num_tri_vert,nvertex_row,step_1,step_2
     real(dp) :: X(3),xi(3)
     logical :: four_nodes
@@ -1114,7 +1203,9 @@ contains
     num_vertices = 0
     num_tri_vert = 0 
 
-    do ne=1,num_elems_2d
+!    do ne = 1,num_elems_2d
+    do nelem = 1,num_surfaces
+       ne = surface_elems(nelem)
        four_nodes = .false.
        repeat = '0_0'
        if(elem_nodes_2d(1,ne).eq.elem_nodes_2d(2,ne)) repeat = '1_0'
@@ -1209,7 +1300,7 @@ contains
     enddo
     
     write(*,'('' Made'',I8,'' triangles to cover'',I6,'' surface elements'')') &
-         num_triangles,num_elems_2d
+         num_triangles,num_surfaces !num_elems_2d
     
     call enter_exit(sub_name,2)
     
@@ -1667,7 +1758,7 @@ contains
              ne_child = elem_cnct(1,k,ne) ! child element of the 1d branch
              np1 = elem_nodes(1,ne_child) ! child element start node
              np2 = elem_nodes(2,ne_child) ! child element end node
-             length = max(cruxdist*1.25_dp, 0.5_dp*(cruxdist*1.25_dp+ &
+             length = max(radius*1.5_dp, cruxdist*1.25_dp, 0.5_dp*(cruxdist*1.25_dp+ &
                   (elem_field(ne_length,ne_child) - radius*0.5_dp)))
              ring_distance(ne_child) = length
              
@@ -1769,11 +1860,12 @@ contains
     call line_segments_for_2d_mesh('arcl')
 
     ! make sure that the nodes are nicely distributed along the branches
-    call redistribute_mesh_nodes_2d_from_1d
+    !call redistribute_mesh_nodes_2d_from_1d
     ! merge unnecessary elements. Most branches will end up with one element in Xi+2
     call merge_2d_from_1d_mesh
     ! remove very short branches where a trifurcation is more appropriate
     call merge_trifurcations(short_elements)
+    call redistribute_mesh_nodes_2d_from_1d
 
     deallocate(elem_node_map)
     deallocate(ring_distance)
@@ -1866,7 +1958,7 @@ contains
     real(dp) :: angle_z,Rx(:,:),Ry(:,:),Txyz(:)
     real(dp),intent(in) :: template_coords(:,:,:,:)
     ! Local Variables
-    integer :: j,ne0,nj,np0,np1,np2,np3,np4
+    integer :: j,ne_parent,ne0,nj,np0,np1,np2,np3,np4
     real(dp) :: angle_z2,ln_23,NML(4),V(3),X1(3),X2(3),X3(3)
     logical :: found
     character(len=60) :: sub_name
@@ -1902,6 +1994,13 @@ contains
           endif
        enddo
     endif
+    
+    ! find the predecessor element that is first proximal to a bifurcation
+    ne_parent = elem_cnct(-1,1,ne)
+    do while (elem_cnct(1,0,ne_parent).ne.2.and.ne_parent.ne.0)
+       ne_parent = elem_cnct(-1,1,ne_parent)
+    enddo
+    
 
 !!! .....Calculate the rotation and translation matrices      
 
@@ -1999,6 +2098,114 @@ contains
     call enter_exit(sub_name,2)
     
   end subroutine mesh_rotate_about_axis
+    
+!!!#############################################################################
+
+  subroutine mesh_rotate_about_axis_basic(np,axis,centre,theta)
+    !*mesh_rotate_about_axis_basic:* calculates the rotation matrices and z-angle for
+    ! rotation of a vector about an arbitrary axis
+    ! of element ne.
+
+    ! only set up for single versioned nodes
+    
+    integer,intent(in) :: np
+    real(dp) :: axis(3),centre(3),theta
+    ! Local Variables
+    integer :: j,nj,nk
+    real(dp) :: d,p1(3),q1(3),q2(3),u(3),Rx(3,3),Ry(3,3),x1(3),x2(3),ln_23
+    character(len=60) :: sub_name
+
+    ! --------------------------------------------------------------------------
+    
+    sub_name = 'mesh_rotate_about_axis'
+    call enter_exit(sub_name,1)
+      
+    !/* Step 1 */
+    p1 = centre
+    q1(1:3) = node_xyz_2d(1,1,1:3,np) - centre(1:3)
+    u = unit_vector(axis)
+    d = sqrt(u(2)*u(2) + u(3)*u(3))
+
+    !/* Step 2 */
+    if (d.gt.zero_tol)then
+       q2(1) = q1(1)
+       q2(2) = q1(2) * u(3) / d - q1(3) * u(2) / d
+       q2(3) = q1(2) * u(2) / d + q1(3) * u(3) / d
+    else
+       q2 = q1
+    endif
+
+    !/* Step 3 */
+    q1(1) = q2(1) * d - q2(3) * u(1)
+    q1(2) = q2(2)
+    q1(3) = q2(1) * u(1) + q2(3) * d
+
+    !/* Step 4 */
+    q2(1) = q1(1) * cos(theta) - q1(2) * sin(theta)
+    q2(2) = q1(1) * sin(theta) + q1(2) * cos(theta)
+    q2(3) = q1(3)
+
+    !/* Inverse of step 3 */
+    q1(1) = q2(1) * d + q2(3) * u(1)
+    q1(2) = q2(2)
+    q1(3) = - q2(1) * u(1) + q2(3) * d
+
+    !/* Inverse of step 2 */
+    if (abs(d).gt.zero_tol)then
+       q2(1) = q1(1)
+       q2(2) = q1(2) * u(3) / d + q1(3) * u(2) / d
+       q2(3) = - q1(2) * u(2) / d + q1(3) * u(3) / d
+    else
+       q2 = q1
+    endif
+
+    !/* Inverse of step 1 */
+    q1(1) = q2(1) + p1(1)
+    q1(2) = q2(2) + p1(2)
+    q1(3) = q2(3) + p1(3)
+
+    node_xyz_2d(1,1,1:3,np) = q1(1:3)
+
+    Rx = 0.0_dp
+    Ry = 0.0_dp
+    Rx(1,1) = 1.0_dp !x-x = 1
+    ln_23 = sqrt(axis(2)**2 + axis(3)**2)
+    if(abs(ln_23).lt.zero_tol) ln_23 = 1.0_dp
+    Rx(2,2) = axis(3)/ln_23
+    Rx(2,3) = axis(2)/ln_23
+    Rx(3,2) = -Rx(2,3)
+    Rx(3,3) = Rx(2,2)
+    
+    Ry(2,2) = 1.0_dp !x-x = 1
+    Ry(1,1) = ln_23
+    Ry(1,3) = axis(1)
+    Ry(3,1) = -Ry(1,3)
+    Ry(3,3) = Ry(1,1)
+    do nk = 2,4 ! for the coordinates and derivatives
+       X1(1) = cos(theta)*node_xyz_2d(nk,1,1,np) + sin(theta)*node_xyz_2d(nk,1,2,np)
+       X1(2) = -sin(theta)*node_xyz_2d(nk,1,1,np) + cos(theta)*node_xyz_2d(nk,1,2,np)
+       node_xyz_2d(nk,1,1,np) = X1(1)
+       node_xyz_2d(nk,1,2,np) = X1(2)
+    enddo ! nk
+    do nk = 2,4
+       X1 = 0.0_dp
+       X2 = 0.0_dp
+       do nj = 1,3
+          do j = 1,3
+             X1(nj) = X1(nj)+Ry(nj,j)*node_xyz_2d(nk,1,j,np)
+          enddo !j
+       enddo !nj
+       do nj = 1,3
+          do j = 1,3
+             X2(nj) = X2(nj)+Rx(nj,j)*X1(j)
+          enddo !j
+       enddo !nj
+       node_xyz_2d(nk,1,1:3,np) = X2(1:3)
+    enddo ! nk
+
+    call enter_exit(sub_name,2)
+    
+  end subroutine mesh_rotate_about_axis_basic
     
 !!!#############################################################################
 
@@ -2175,37 +2382,71 @@ contains
     sub_name = 'merge_2d_from_1d_mesh'
     call enter_exit(sub_name,1)
 
-    ne = 1
-    do while (ne.le.num_elems_2d)
+!    ne = 1
+!    do while (ne.le.num_elems_2d)
+!       if(elems_2d(ne).gt.0)then
+!          if(elem_cnct_2d(2,0,ne).gt.0)then
+!             np1 = elem_nodes_2d(3,ne)
+!             np2 = elem_nodes_2d(4,ne)
+!             if(node_versn_2d(np1).gt.1.and.node_versn_2d(np2).gt.1)then
+!                ! merge with the previous ring
+!                do j = 1,4
+!                   ne_parent = elem_cnct_2d(-2,1,ne)  ! get element proximal to current
+!                   elem_nodes_2d(1:2,ne) = elem_nodes_2d(1:2,ne_parent)
+!                   elem_versn_2d(1:2,ne) = elem_versn_2d(1:2,ne_parent)
+!                   elem_cnct_2d(-2,0:1,ne) = elem_cnct_2d(-2,0:1,ne_parent)
+!                   if(elem_cnct_2d(-2,0,ne_parent).ne.0)then
+!                      ne_parent2 = elem_cnct_2d(-2,1,ne_parent)
+!                      elem_cnct_2d(2,0:1,ne_parent2) = elem_cnct_2d(2,0:1,ne_parent)
+!                   endif
+!                   nodes_2d(elem_nodes_2d(3,ne_parent)) = 0
+!                   node_xyz_2d(:,:,:,elem_nodes_2d(3,ne_parent)) = 0.0_dp
+!                   elems_2d(ne_parent) = 0
+!                   elem_nodes_2d(:,ne_parent) = 0
+!                   ne = ne + 1
+!                enddo
+!             else
+!                ne = ne + 4 ! skip to next ring
+!             endif
+!          else
+!             ne = ne + 4 ! skip to next ring
+!          endif
+!       else
+!          ne = ne + 4 ! skip to next ring
+!       endif
+!    enddo
+
+    ne = num_elems_2d
+    do while (ne.gt.1)
        if(elems_2d(ne).gt.0)then
           if(elem_cnct_2d(2,0,ne).gt.0)then
-             np1 = elem_nodes_2d(3,ne)
-             np2 = elem_nodes_2d(4,ne)
+             np1 = elem_nodes_2d(1,ne)
+             np2 = elem_nodes_2d(2,ne)
              if(node_versn_2d(np1).gt.1.and.node_versn_2d(np2).gt.1)then
-                ! merge with the previous ring
+                ! merge with the next ring
                 do j = 1,4
-                   ne_parent = elem_cnct_2d(-2,1,ne)  ! get element proximal to current
-                   elem_nodes_2d(1:2,ne) = elem_nodes_2d(1:2,ne_parent)
-                   elem_versn_2d(1:2,ne) = elem_versn_2d(1:2,ne_parent)
-                   elem_cnct_2d(-2,0:1,ne) = elem_cnct_2d(-2,0:1,ne_parent)
-                   if(elem_cnct_2d(-2,0,ne_parent).ne.0)then
-                      ne_parent2 = elem_cnct_2d(-2,1,ne_parent)
-                      elem_cnct_2d(2,0:1,ne_parent2) = elem_cnct_2d(2,0:1,ne_parent)
+                   ne_parent = elem_cnct_2d(2,1,ne)  ! get element distal to current
+                   elem_nodes_2d(3:4,ne) = elem_nodes_2d(3:4,ne_parent)
+                   elem_versn_2d(3:4,ne) = elem_versn_2d(3:4,ne_parent)
+                   elem_cnct_2d(2,0:1,ne) = elem_cnct_2d(2,0:1,ne_parent)
+                   if(elem_cnct_2d(2,0,ne_parent).ne.0)then
+                      ne_parent2 = elem_cnct_2d(2,1,ne_parent)
+                      elem_cnct_2d(-2,0:1,ne_parent2) = elem_cnct_2d(-2,0:1,ne_parent)
                    endif
-                   nodes_2d(elem_nodes_2d(3,ne_parent)) = 0
-                   node_xyz_2d(:,:,:,elem_nodes_2d(3,ne_parent)) = 0.0_dp
+                   nodes_2d(elem_nodes_2d(1,ne_parent)) = 0
+                   node_xyz_2d(:,:,:,elem_nodes_2d(1,ne_parent)) = 0.0_dp
                    elems_2d(ne_parent) = 0
                    elem_nodes_2d(:,ne_parent) = 0
-                   ne = ne + 1
+                   ne = ne - 1
                 enddo
              else
-                ne = ne + 4 ! skip to next ring
+                ne = ne - 4 ! skip to next ring
              endif
           else
-             ne = ne + 4 ! skip to next ring
+             ne = ne - 4 ! skip to next ring
           endif
        else
-          ne = ne + 4 ! skip to next ring
+          ne = ne - 4 ! skip to next ring
        endif
     enddo
     
@@ -2228,6 +2469,39 @@ contains
     call enter_exit(sub_name,2)
 
   end subroutine merge_2d_from_1d_mesh
+
+!!!#############################################################################
+
+  subroutine merge_2d_element(ndirection,ne)
+    !*merge_element:* Merges a 2d element with the neighbouring element in the 
+    ! ndirection Xi direction
+    !DEC$ ATTRIBUTES DLLEXPORT,ALIAS:"SO_MERGE_2D_ELEMENT" :: MERGE_2D_ELEMENT
+    
+    integer :: ndirection,ne
+    ! Local parameters
+    integer :: j,ne_parent,ne_parent2
+    
+    do j = 1,4
+       ne_parent = elem_cnct_2d(ndirection,1,ne)  ! get adjacent element in ndirection
+       if(ndirection.eq.-2)then
+          elem_nodes_2d(1:2,ne) = elem_nodes_2d(1:2,ne_parent)
+          elem_versn_2d(1:2,ne) = elem_versn_2d(1:2,ne_parent)
+          elem_cnct_2d(-2,0:1,ne) = elem_cnct_2d(-2,0:1,ne_parent)
+          if(elem_cnct_2d(-2,0,ne_parent).ne.0)then
+             ne_parent2 = elem_cnct_2d(-2,1,ne_parent)
+             elem_cnct_2d(2,0:1,ne_parent2) = elem_cnct_2d(2,0:1,ne_parent)
+          endif
+          nodes_2d(elem_nodes_2d(3,ne_parent)) = 0
+          node_xyz_2d(:,:,:,elem_nodes_2d(3,ne_parent)) = 0.0_dp
+       endif
+       elems_2d(ne_parent) = 0
+       elem_nodes_2d(:,ne_parent) = 0
+       ne = ne + 1
+    enddo !j
+    num_elems_2d = num_elems_2d - 4
+    num_nodes_2d = num_nodes_2d - 4
+    
+  end subroutine merge_2d_element
 
 !!!#############################################################################
 
@@ -2816,7 +3090,7 @@ contains
        if(.not.allocated(line_versn_2d)) allocate(line_versn_2d(2,3,num_lines_2d))
        if(.not.allocated(lines_in_elem)) allocate(lines_in_elem(0:4,num_lines_2d))
        if(.not.allocated(nodes_in_line)) allocate(nodes_in_line(3,0:3,num_lines_2d))
-       if(.not.allocated(arclength)) allocate(arclength(3,num_lines_2d)) 
+       if(.not.allocated(arclength)) allocate(arclength(num_lines_2d)) 
        lines_in_elem=0
        lines_2d=0
        nodes_in_line=0
@@ -3545,6 +3819,30 @@ contains
   
 !!!#############################################################################
 
+  subroutine enclosed_volume(surface_elems)
+    !*enclosed_volume:* estimates the volume that is inside a list of bounding
+    ! surface elements
+    !DEC$ ATTRIBUTES DLLEXPORT,ALIAS:"SO_ENCLOSED_VOLUME" :: ENCLOSED_VOLUME
+
+    integer,intent(in) :: surface_elems(:)
+    ! Local variables
+    integer :: num_triangles,num_vertices
+    integer,allocatable :: triangle(:,:)
+    real(dp) :: volume
+    real(dp),allocatable :: vertex_xyz(:,:)
+
+    call triangles_from_surface(num_triangles,num_vertices,surface_elems, &
+       triangle,vertex_xyz)
+    volume = volume_internal_to_surface(triangle,vertex_xyz)
+    write(*,'('' Enclosed volume = '',f9.2,'' mm^3'')') volume
+
+    deallocate(triangle)
+    deallocate(vertex_xyz)
+    
+  end subroutine enclosed_volume
+
+!!!#############################################################################
+
   subroutine group_elem_parent_term(ne_parent)
     !*group_elem_parent_term:* group the terminal elements that sit distal to
     !  a given parent element (ne_parent)
@@ -3885,12 +4183,12 @@ contains
   
 !!!#############################################################################
 
-  subroutine redistribute_mesh_nodes_2d_from_1d
+  subroutine redistribute_mesh_nodes_2d_from_1d_0
 
     integer :: i,j,k,ne,nelist(20),ne_adjacent,np,nplist(20),np_adjacent,np_last,num_list, &
          ring1_nodes(4)
-    real(dp) :: displace_length,distance_to_crux,distance_to_crux_last,line_length, &
-         nedirection(3,20),point1(3),point2(3),point3(3),point4(3),vector(3)
+    real(dp) :: centre(3),displace_length,distance_to_crux,distance_to_crux_last,line_length, &
+         nedirection(3,20),point1(3),point2(3),point3(3),point4(3),theta,vector(3)
     logical :: continue
     character(len=60) :: sub_name
 
@@ -3924,7 +4222,7 @@ contains
              ! calculate the distance from the crux (point4) to the plane of first adjacent ring
              line_length = distance_from_plane_to_point(point1,point2,point3,point4)
              
-             point1(1:3) = node_xyz_2d(1,1,1:3,np-1)   ! the location of the 'back' node of bifurcation
+             !point1(1:3) = node_xyz_2d(1,1,1:3,np-1)   ! the location of the 'back' node of bifurcation
 !!             ! calculate the line length from back node to a point on the first ring
 !!             distance_to_crux_last = distance_between_points(point1,point2)
              
@@ -3984,6 +4282,138 @@ contains
                         node_xyz_2d(1,1,1:3,ring1_nodes(k)) + &
                         vector(1:3) * displace_length
                 enddo
+
+             enddo ! j
+          enddo ! i
+       endif
+       np = np + 1 ! increment to check the next node
+    enddo
+    
+    call enter_exit(sub_name,2)
+    
+  end subroutine redistribute_mesh_nodes_2d_from_1d_0
+
+!!!#############################################################################
+
+  subroutine redistribute_mesh_nodes_2d_from_1d
+
+    integer :: i,j,k,ne,nelist(20),ne_adjacent,np,nplist(20),np_adjacent,np_last,num_list, &
+         ring1_nodes(4)
+    real(dp) :: centre(3),displace_length,distance_to_crux,distance_to_crux_last,line_length, &
+         nedirection(3,20),point1(3),point2(3),point3(3),point4(3),ring_dist(10),theta,vector(3)
+    logical :: continue
+    character(len=60) :: sub_name
+
+    ! --------------------------------------------------------------------------
+    
+    sub_name = 'redistribute_mesh_nodes_2d_from_1d'
+    call enter_exit(sub_name,1)
+
+    nplist = 0
+    nelist = 0
+
+    np = 1
+    do while (np.le.num_nodes_2d) ! run through all of the 2d mesh nodes
+       ! use the 'front' bifurcation node to identify the crux node (based on the
+       ! template structure that we used to set up the bifurcations). Crux node
+       ! must be at front_node + 3.
+       if(node_versn_2d(np).eq.6)then   ! this is the 'front' node at a bifurcation
+          np = np + 3   ! this is the node number for the 'crux' node
+          do i = 1,2 ! for each of the two branches that the bifurcation leads to
+             ne = elems_at_node_2d(np,2*i-1)   ! get the first (and then third) element that node np (crux) is in
+             num_list = 1                      ! count the number of 'rings' of nodes between bifurcations
+             nelist(num_list) = ne             ! record the first (and third) element number ne
+             np_adjacent = elem_nodes_2d(4,ne) ! node number in the +Xi2 direction (along the branch)
+             nplist(num_list) = np_adjacent    ! the node number along the line from one bifurcation to the next
+             ! get coordinates for three of the points on the first 'ring' that is in the direction of the
+             ! branch. Not straightforward when at a bifurcation.
+             point1(1:3) = node_xyz_2d(1,1,1:3,np_adjacent)
+             point2(1:3) = node_xyz_2d(1,1,1:3,elem_nodes_2d(3,ne))
+             point3(1:3) = node_xyz_2d(1,1,1:3,elem_nodes_2d(3,elem_cnct_2d(-1,1,ne)))
+             point4(1:3) = node_xyz_2d(1,1,1:3,np)   ! the location of the crux node
+             ! calculate the distance from the crux (point4) to the plane of first adjacent ring
+             line_length = distance_from_plane_to_point(point1,point2,point3,point4)
+
+             ! 2nd side node is at np-2 and 1st side node is at np-4
+             if(i.eq.1)then
+                point1(1:3) = node_xyz_2d(1,1,1:3,np-4)
+                point2(1:3) = node_xyz_2d(1,1,1:3,elem_nodes_2d(3,ne))
+             elseif(i.eq.2)then
+                point1(1:3) = node_xyz_2d(1,1,1:3,np-2)
+                point2(1:3) = node_xyz_2d(1,1,1:3,elem_nodes_2d(4,ne))
+             endif
+             line_length = distance_between_points(point1,point2)
+             ring_dist(num_list) = line_length
+             
+             continue = .true.
+             do while(continue)   ! keep going: note that bifurcation will have > 1 version at nodes
+                if(elem_cnct_2d(2,0,ne).eq.0)then ! no adjacent 2d elements in Xi+2 direction
+                   continue = .false.
+                else
+                   ne = elem_cnct_2d(2,1,ne)        ! get the next adjacent element in Xi+2 direction
+                   num_list = num_list + 1 ! the number of 'rings' between bifurcations
+                   nelist(num_list) = ne ! the element number of the adjacent element
+                   np_last = np_adjacent   ! store the previous node number
+                   np_adjacent = elem_nodes_2d(4,ne) ! the next node on the line
+                   nplist(num_list) = np_adjacent    ! the node number on the line from one bifurcation to the next
+                   ! calculate the distance between adjacent rings
+                   point1(1:3) = node_xyz_2d(1,1,1:3,np_last)      ! coordinates of node on previous ring
+                   point2(1:3) = node_xyz_2d(1,1,1:3,np_adjacent)  ! coordinate of node on current ring
+                   line_length = line_length + &
+                        distance_between_points(point1,point2)  ! sum distance between rings
+                   ! calculate the direction between connected nodes on rings
+                   vector(1:3) = node_xyz_2d(1,1,1:3,np_adjacent) - &
+                        node_xyz_2d(1,1,1:3,np_last)
+                   vector = unit_vector(vector)
+                   nedirection(1:3,num_list-1) = vector(1:3)  ! store the direction
+                   ! continue until the next bifurcation is detected (nodes with > 1 version)                   
+                   if(node_versn_2d(np_adjacent).ne.1) continue = .false.
+                   write(*,*) 'using nodes',np_last,np_adjacent
+                   write(*,*) 'line length',line_length
+                   ring_dist(num_list) = line_length
+                endif
+             enddo
+
+             line_length = line_length/real(num_list) ! this is the length to redistribute rings to
+             
+!!!          adjust the location of the nodes in each 'ring'
+             do j = 1,num_list - 1   ! only adjust the rings that are between bifns: last 'ring' is actually the next bifn
+                
+                ! first get the list of nodes in the ring
+                ring1_nodes(1) = nplist(j)
+                ne_adjacent = elem_cnct_2d(1,1,nelist(j)) ! get the next element in the +Xi1 direction
+                do k = 2,4
+                   ring1_nodes(k) = elem_nodes_2d(4,ne_adjacent)
+                   ne_adjacent = elem_cnct_2d(1,1,ne_adjacent) ! get the next element in the +Xi1 direction
+                enddo ! k
+                
+                ! assume that the direction for adjustment is defined by location of adjacent rings
+                vector(1:3) = nedirection(1:3,j)
+                
+                ! calculate the ring displacement = j*line_length - (distance from crux)
+                !point1(1:3) = node_xyz_2d(1,1,1:3,ring1_nodes(1))
+                !point2(1:3) = node_xyz_2d(1,1,1:3,ring1_nodes(2))
+                !point3(1:3) = node_xyz_2d(1,1,1:3,ring1_nodes(3))
+                !point4(1:3) = node_xyz_2d(1,1,1:3,np)
+                !displace_length = real(j) * line_length - &
+                !     distance_from_plane_to_point(point1,point2,point3,point4)
+                displace_length = real(j) * line_length - ring_dist(j)
+                
+                ! update the location of the four nodes in the current ring
+                do k = 1,4
+                   node_xyz_2d(1,1,1:3,ring1_nodes(k)) = &
+                        node_xyz_2d(1,1,1:3,ring1_nodes(k)) + &
+                        vector(1:3) * displace_length
+                enddo
+
+!                ! rotate the ring a bit to test
+!                theta = -pi*30.0_dp/180.0_dp ! 15 degrees
+!                point4(1:3) = node_xyz_2d(1,1,1:3,ring1_nodes(4))
+!                centre = (point1 + point2 + point3 + point4)/4.0_dp
+!                do k = 1,4
+!                   call mesh_rotate_about_axis_basic(ring1_nodes(k),vector,centre,theta)
+!                enddo
+                
              enddo ! j
           enddo ! i
        endif
