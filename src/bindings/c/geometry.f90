@@ -241,6 +241,25 @@ contains
 !
 !###################################################################################
 !
+  subroutine merge_2d_element_c(ndirection,ne) bind(C, name="merge_2d_element_c")
+
+    use iso_c_binding, only: c_ptr
+    use geometry, only: merge_2d_element
+    implicit none
+
+    integer,intent(in) :: ndirection,ne
+
+#if defined _WIN32 && defined __INTEL_COMPILER
+    call so_merge_2d_element(ndirection,ne)
+#else
+    call merge_2d_element(ndirection,ne)
+#endif
+
+  end subroutine merge_2d_element_c
+
+!
+!###################################################################################
+!
   subroutine define_data_geometry_c(DATAFILE, filename_len) bind(C, name="define_data_geometry_c")
 
     use iso_c_binding, only: c_ptr
