@@ -4368,8 +4368,6 @@ contains
                    nedirection(1:3,num_list-1) = vector(1:3)  ! store the direction
                    ! continue until the next bifurcation is detected (nodes with > 1 version)                   
                    if(node_versn_2d(np_adjacent).ne.1) continue = .false.
-                   write(*,*) 'using nodes',np_last,np_adjacent
-                   write(*,*) 'line length',line_length
                    ring_dist(num_list) = line_length
                 endif
              enddo
