@@ -85,6 +85,8 @@ contains
     write(*,'('' Define boundary conditions and mapping '')')
     call define_geometry_fit(elem_list,np_list_redist,npny,num_depvar,nynp,nynr,nyny,&
          cyny,sobelov_wts,fit_soln,fitting_file,fix_bcs)
+    call set_linear_derivatives
+    scale_factors_2d = 1.0_dp
 
 !!! find the closest surface to each data point, and calculate the Xi
 !!! coordinates of the data point to the surface
@@ -109,7 +111,7 @@ contains
        write(*,'('' Update pseudo-landmarks locations '')')
        ! update the node locations on base, fissures, anterior and posterior lines
        call distribute_surface_node_fit(np_list_redist,nynp,fit_soln,fix_bcs) ! lateral-base
-    
+
 !!!    update the scale factors for new geometry if NOT unit scale factors
 !       write(*,'('' Update scale factors '')')
 !       call update_scale_factor_norm
@@ -255,7 +257,7 @@ contains
              do nh = 1,3
                 ny = nynp(nk,nv,nh,np)
                 fix_bcs(ny) = .true.
-                fit_soln(nk,nv,nh,np) = 0.0_dp
+                !fit_soln(nk,nv,nh,np) = 0.0_dp ! shouldn't be zero
              enddo !nh
           endif
        enddo read_fixed_nodes !node

@@ -10,6 +10,7 @@ module geometry
   !This module handles all geometry read/write/generation.
   use arrays
   use diagnostics
+  use exports
   use indices
   use mesh_utilities
   use other_consts ! currently has pi
@@ -44,8 +45,6 @@ module geometry
   public inlist
   public evaluate_ordering
   public get_final_real
-  public get_local_elem
-  public get_local_node_f
   public make_data_grid
   public make_2d_vessel_from_1d
   public merge_2d_element
@@ -1067,11 +1066,22 @@ contains
                 read(unit=10, fmt=*, iostat=ierror) node_xyz_2d(1:4,nv,i,np)
              end do !nv
           end do !i
+          if((np_global.eq.80).or.(np_global.eq.56))then
+             node_xyz_2d(3,5,:,np) = 0.0_dp
+          elseif(np_global.eq.52)then
+             node_xyz_2d(2,4,:,np) = 0.0_dp
+          elseif(np_global.eq.94)then
+             node_xyz_2d(2,3,:,np) = 0.0_dp
+             node_xyz_2d(2,4,:,np) = 0.0_dp
+          elseif(np_global.eq.96)then
+             node_xyz_2d(2,5,:,np) = 0.0_dp
+          endif
        endif !index
        if(np.ge.num_nodes_2d) exit read_a_node
     end do read_a_node
     
     close(10)
+    write(*,*) 'warning: hardcoded zeroing of derivs at nodes 52,56,80,94,96'
     
     call enter_exit(sub_name,2)
     
@@ -1181,7 +1191,7 @@ contains
     integer,allocatable :: triangle(:,:)
     real(dp),allocatable :: vertex_xyz(:,:)
     ! Local variables
-    integer,parameter :: ndiv = 3
+    integer,parameter :: ndiv = 6
     integer :: i,index1,index2,j,ne,nelem,nmax_1,nmax_2,num_surfaces, &
          num_tri_vert,nvertex_row,step_1,step_2
     real(dp) :: X(3),xi(3)
@@ -1203,7 +1213,6 @@ contains
     num_vertices = 0
     num_tri_vert = 0 
 
-!    do ne = 1,num_elems_2d
     do nelem = 1,num_surfaces
        ne = surface_elems(nelem)
        four_nodes = .false.
@@ -1299,8 +1308,8 @@ contains
        enddo !i
     enddo
     
-    write(*,'('' Made'',I8,'' triangles to cover'',I6,'' surface elements'')') &
-         num_triangles,num_surfaces !num_elems_2d
+    !write(*,'('' Made'',I8,'' triangles to cover'',I6,'' surface elements'')') &
+    !     num_triangles,num_surfaces !num_elems_2d
     
     call enter_exit(sub_name,2)
     
@@ -1418,83 +1427,9 @@ contains
     
     if(to_export)then
 !!! export vertices as nodes
-       writefile = trim(filename)//'.exnode'
-       open(10, file = writefile, status='replace')
-       !**    write the group name
-       write(10,'( '' Group name: '',A)') trim(groupname)
-       !*** Exporting Geometry
-       !*** Write the field information
-       write(10,'( '' #Fields=1'' )')
-       write(10,'('' 1) coordinates, coordinate, rectangular cartesian, '',&
-            &''#Components=3'')')
-       do nj=1,3
-          if(nj.eq.1) write(10,'(2X,''x.  '')',advance="no")
-          if(nj.eq.2) write(10,'(2X,''y.  '')',advance="no")
-          if(nj.eq.3) write(10,'(2X,''z.  '')',advance="no")
-          write(10,'(''Value index='',I2,'', #Derivatives='',I1)', &
-               advance="no") nj,0
-          write(10,'()')
-       enddo
-       do i = 1,num_vertices
-          !***    write the node
-          write(10,'(1X,''Node: '',I12)') i
-          write(10,'(2x,3(f12.6))') vertex_xyz(:,i)
-       enddo
-       close(10)
-       
+       call export_triangle_nodes(num_vertices,vertex_xyz,filename,groupname)
 !!! export the triangles as surface elements
-       writefile = trim(filename)//'.exelem'
-       open(10, file=writefile, status='replace')
-       !**     write the group name
-       write(10,'( '' Group name: '',a10)') groupname
-       !**     write the lines
-       write(10,'( '' Shape. Dimension=1'' )')
-       nline=0
-       do ne = 1,num_triangles
-          write(10,'( '' Element: 0 0 '',I5)') nline+1
-          write(10,'( '' Element: 0 0 '',I5)') nline+2
-          write(10,'( '' Element: 0 0 '',I5)') nline+3
-          nline=nline+3
-       enddo !ne
-       
-       !**        write the elements
-       write(10,'( '' Shape. Dimension=2, line*line'' )')
-       write(10,'( '' #Scale factor sets=1'' )')
-       write(10,'( '' l.Lagrange*l.Lagrange, #Scale factors=4'' )')
-       write(10,'( '' #Nodes= '',I2 )') 4
-       write(10,'( '' #Fields=1'' )')
-       write(10,'( '' 1) coordinates, coordinate, rectangular cartesian, #Components=3'')')
-       
-       do nj=1,3
-          if(nj==1) char1='x'; if(nj==2) char1='y'; if(nj==3) char1='z';
-          write(10,'(''  '',A2,''. l.Lagrange*l.Lagrange, no modify, standard node based.'')') char1
-          write(10,'( ''   #Nodes=4'')')
-          do nn=1,4
-             write(10,'(''   '',I1,''. #Values=1'')') nn
-             write(10,'(''     Value indices: '',I4)') 1
-             write(10,'(''     Scale factor indices: '',I4)') nn
-          enddo !nn
-       enddo !nj
-       
-       nline=0
-       do ne=1,num_triangles
-          !**         write the element
-          write(10,'(1X,''Element: '',I12,'' 0 0'' )') ne
-          !**          write the faces
-          WRITE(10,'(3X,''Faces: '' )')
-          WRITE(10,'(5X,''0 0'',I6)') nline+1
-          WRITE(10,'(5X,''0 0'',I6)') nline+2
-          WRITE(10,'(5X,''0 0'',I6)') nline+3
-          WRITE(10,'(5X,''0 0'',I6)') 0
-          nline=nline+3
-          !**          write the nodes
-          write(10,'(3X,''Nodes:'' )')
-          write(10,'(4X,4(1X,I12))') triangle(:,ne),triangle(3,ne)
-          !**          write the scale factors
-          write(10,'(3X,''Scale factors:'' )')
-          write(10,'(4X,4(1X,E12.5))') 1.0_dp,1.0_dp,1.0_dp,1.0_dp
-       enddo
-       close(10)
+       call export_triangle_elements(num_triangles,triangle,filename,groupname)
     endif
     
     deallocate(triangle)
@@ -1505,8 +1440,801 @@ contains
   end subroutine make_data_grid
   
 !!!#############################################################################
-  
+
   subroutine make_2d_vessel_from_1d(elem_list)
+    !*make_2d_vessel_from_1d:* create a surface mesh that aligns with the
+    ! centrelines of a 1D tree, and located at distance 'radius' from the centre.
+    ! a template for a set of 5 nodes (that together define a bifurcation) is
+    ! scaled, rotated, translated to align with the 1d mesh and its radii. 
+    !DEC$ ATTRIBUTES DLLEXPORT,ALIAS:"SO_MAKE_2D_VESSEL_FROM_1D" :: MAKE_2D_VESSEL_FROM_1D
+
+    integer,intent(in) :: elem_list(:)
+    ! Local variables
+    integer,allocatable :: elem_node_map(:,:,:) ! stores the surface nodes in ring around 1d nodes
+    integer,allocatable :: short_elements(:)    ! stores short surface elements for removing.
+    !                                             these will be at short successive bifurcations
+    integer,allocatable :: elem_ring(:,:),node_ring(:,:)
+    integer :: template_cnct(2,8)               ! the node numbering for the templated elements
+    integer :: template_vrsn_map(2,8)           ! versions of nodes for the templated elements
+    integer :: template_vrsns(5)                ! # of versions of derivatives for 'template' bifurcation
+    integer :: i,j,k,ne_sib,np_side1,np_side2,ne,ne_child,ne_count,ne_global,ne_new, &
+         ne0,nj,nk,nmax,nn,np_crux,np_new,np_now,np_prev,np0,np1,np2,np_close(2), &
+         num_short,nv,nvb,max_num_nodes_2d,start_npth
+    real(dp) :: new_coords_derivs(4,10,3,5)     ! coordinates of translated and rotated template
+    real(dp) :: ring_coords(3,5)                ! the coordinates of nodes in a current 'ring'
+    real(dp),allocatable :: ring_distance(:)    ! distance of new 'ring' of nodes from 1d start node
+    real(dp) :: template_coords(4,6,3,5)        ! coordinates of 5 nodes in 'template' bifurcation
+    real(dp) :: angle,cruxdist,distance,length,line_direction(3),l_to_d,min_angle,point1(3),point2(3),point3(3), &
+         radius,radius_weighted,Rx(3,3),Ry(3,3),smallest,smallest_angle,Txyz(3),u(3),v(3),vector_1(3), &
+         vector_2(3),zz(3)
+
+    real(dp) :: ln_23
+    logical :: bifn_parent,entry_branch,major_child,minor_child,single_child
+
+    character(len=60) :: sub_name
+
+    ! --------------------------------------------------------------------------
+    
+    sub_name = 'make_2d_vessel_from_1d'
+    call enter_exit(sub_name,1)
+
+!!! adjust the 1D tree so that the elements are not shorter than they are wide
+    do ne = 1,num_elems
+       ne0 = elem_cnct(-1,1,ne)
+       ne_sib = elem_cnct(1,1,ne0)
+       if(ne_sib.eq.ne) ne_sib = elem_cnct(1,2,ne0)
+       if(ne_sib.ne.0.and.elem_cnct(1,0,ne).eq.1)then ! only for branches with single child branch
+          l_to_d = elem_field(ne_length,ne)/elem_field(ne_radius,ne)
+          if(l_to_d.le.2.0_dp)then
+             np1 = elem_nodes(1,ne) ! node at Xi1 = 0
+             np2 = elem_nodes(2,ne) ! node at Xi1 = 1
+             u(:) = elem_direction(:,ne) ! unit vector for direction of minor branch
+             v(:) = elem_direction(:,ne_sib) ! unit vector for direction of sibling branch
+             zz(:) = unit_vector(0.5_dp * (u(:) + v(:)))
+             smallest_angle = acos(scalar_product_3(zz,v))
+             distance = elem_field(ne_radius,ne)/sin(smallest_angle)
+             node_xyz(:,np2) = node_xyz(:,np1) + elem_direction(:,ne) * distance
+             elem_field(ne_length,ne) = distance
+             ne_child = elem_cnct(1,1,ne)
+             np1 = elem_nodes(1,ne_child) ! node at Xi1 = 0
+             np2 = elem_nodes(2,ne_child) ! node at Xi1 = 1
+             elem_field(ne_length,ne_child) = &
+                  distance_between_points(node_xyz(:,np1),node_xyz(:,np2))
+         endif
+       endif
+    enddo
+
+!!! allocate memory for the 2d geometry arrays
+
+    max_num_nodes_2d = num_nodes * 5 * 2 ! maximum possible
+    num_elems_2d = num_elems * 4 * 2 !maximum possible
+    allocate(nodes_2d(max_num_nodes_2d))
+    allocate(node_xyz_2d(4,10,16,max_num_nodes_2d)) ! maximum possible
+    allocate(node_versn_2d(max_num_nodes_2d))
+    allocate(elem_node_map(3,5,max_num_nodes_2d))
+    allocate(elems_2d(num_elems_2d))
+    allocate(elem_nodes_2d(4,num_elems_2d))
+    allocate(elem_versn_2d(4,num_elems_2d))
+    allocate(short_elements(4*num_elems_2d))
+    allocate(elem_ring(4,num_elems))
+    allocate(node_ring(4,num_elems))
+
+    node_versn_2d = 1 ! default to 1 version for node np
+    elem_versn_2d = 1 ! default to 1 version for node nn in element ne
+    elem_node_map = 0
+    elem_ring = 0
+    node_ring = 0
+    ne_new = 0  ! initialise the surface mesh element numbering
+    np_new = 0  ! initialise the surface mesh node numbering
+
+!!! set up a generic structure (in template_coords) that will be rotated, scaled, and placed 
+    ! the following arrays define the template bifurcation
+    template_vrsns = (/2,6,2,6,2/)
+    template_vrsn_map = reshape((/1,2,3,1,1,3,2,1,1,5,4,2,2,4,5,1/),shape(template_vrsn_map))
+    template_cnct = reshape((/5,2,2,3,3,4,4,5,1,2,2,5,5,4,4,1/),shape(template_cnct))
+    call mesh_2d_from_1d_generic(template_coords)
+
+    ne_global = elem_list(1) ! the global stem element number for the 2d mesh
+    ne = get_local_elem_1d(ne_global)  ! the local element number
+    ne_count = 1 ! counter for the 1d elements in the list
+
+    do while (ne /= 0)
+
+       np1 = elem_nodes(1,ne)   ! start node of current element 
+       np2 = elem_nodes(2,ne)   ! end node of current element
+       radius = elem_field(ne_radius,ne)
+       length = elem_field(ne_length,ne)  ! length of current element
+
+       ! check which type of branch
+       bifn_parent  = .false.
+       entry_branch = .false.
+       major_child  = .false.
+       minor_child  = .false.
+       single_child = .false.
+
+       ne0 = elem_cnct(-1,1,ne) ! parent
+       if(ne.eq.1)then
+          entry_branch = .true.
+       else
+          if(elem_cnct(1,0,ne0).eq.1)then
+             single_child = .true.
+          else
+             ne_sib = elem_cnct(1,1,ne0)
+             if(ne_sib.eq.ne) ne_sib = elem_cnct(1,2,ne0)
+             if(radius.gt.elem_field(ne_radius,ne_sib))then
+                major_child = .true.
+             else
+                if(abs(radius - elem_field(ne_radius,ne_sib)).le.loose_tol)then
+                   ! check branch angles
+                   if(angle_btwn_vectors(elem_direction(:,ne0),elem_direction(:,ne)) &
+                        .gt.angle_btwn_vectors(elem_direction(:,ne0),elem_direction(:,ne_sib)))then
+                      minor_child = .true.
+                   else
+                      major_child = .true.
+                   endif
+                else
+                   minor_child = .true.
+                endif
+             endif
+          endif
+       endif
+       
+       ! calculate the rotation angle and matrices for template mesh about 1d element
+       !call calc_rotat_trans_mats(ne,np1,Rx,Ry,Txyz)
+       !angle = 0.0_dp ! 
+       call mesh_rotate_about_axis(ne,angle,Rx,Ry,Txyz,template_coords)
+       
+       ! calculate new locations and derivatives for scaling, translation, rotation of template
+       call mesh_rotate_vector_about_axis(4,template_vrsns,angle,0.0_dp,radius,radius, &
+            Rx,Ry,Txyz,template_coords,new_coords_derivs)
+
+       ! create 4 new nodes at start and record their node numbers, coordinates
+       if(entry_branch.or.minor_child)then
+          do i = 1,4
+             np_new = np_new+1
+             nodes_2d(np_new) = np_new ! global element number stored in local index
+             if(entry_branch)then
+                elem_node_map(1,i,np1) = np_new !record nodes in ring around np1
+                node_xyz_2d(1:3,1,:,np_new) = new_coords_derivs(1:3,1,:,i) ! coordinates and derivatives 1,2,1_2
+             elseif(minor_child)then
+                elem_node_map(2,i,np1) = np_new !record nodes in ring around np1
+                node_xyz_2d(1,1,:,np_new) = new_coords_derivs(1,1,:,i) & ! coordinates and derivatives 1,2,1_2
+                     + elem_direction(:,ne) * elem_field(ne_radius,ne0)
+                node_xyz_2d(2:3,1,:,np_new) = new_coords_derivs(2:3,1,:,i)
+             endif
+          enddo !i
+       endif
+
+       ! create 4 new nodes at end and record their node numbers, coordinates
+       do i = 1,4
+          np_new = np_new+1
+          nodes_2d(np_new) = np_new ! global element number stored in local index
+          elem_node_map(1,i,np2) = np_new !record nodes in ring around np2
+          node_xyz_2d(1:3,1,:,np_new) = new_coords_derivs(1:3,1,:,i) ! coordinates and derivatives 1,2,1_2
+          forall (k = 1:3) node_xyz_2d(1,1,k,np_new) = node_xyz_2d(1,1,k,np_new) &
+               + elem_direction(k,ne) * length! coordinates and derivatives 1,2,1_2
+          ne_new = ne_new + 1
+          elems_2d(ne_new) = ne_new  
+
+          if(minor_child)then
+             np_prev = elem_node_map(2,i,np1)
+             elem_nodes_2d(1,ne_new) = np_prev
+             elem_nodes_2d(3,ne_new) = np_new
+             elem_ring(i,ne) = ne_new
+             if(i.lt.4)then
+                elem_nodes_2d(2,ne_new) = np_prev + 1
+                elem_nodes_2d(4,ne_new) = np_new + 1
+             else
+                elem_nodes_2d(2,ne_new) = elem_node_map(2,1,np1)
+                elem_nodes_2d(4,ne_new) = np_new - 3
+             endif
+          else
+             min_angle = 1.0e6_dp
+             if(i.eq.1)then ! first time through, figure out connectivity
+                do j = 1,4
+                   np_prev = elem_node_map(1,j,np1)
+                   line_direction = direction_point_to_point(node_xyz_2d(1,1,:,np_prev),node_xyz_2d(1,1,:,np_new))
+                   angle = angle_btwn_vectors(line_direction,elem_direction(:,ne))
+                   if(angle.lt.min_angle)then
+                      min_angle = angle
+                      start_npth = j
+                   endif
+                enddo
+             endif
+             np_prev = elem_node_map(1,start_npth,np1)
+             elem_nodes_2d(1,ne_new) = np_prev
+             elem_nodes_2d(3,ne_new) = np_new
+             elem_ring(i,ne) = ne_new
+             if(i.lt.4)then
+                elem_nodes_2d(4,ne_new) = np_new + 1
+             else
+                elem_nodes_2d(4,ne_new) = np_new - 3
+             endif
+             if(start_npth.lt.4)then
+                elem_nodes_2d(2,ne_new) = np_prev + 1
+                start_npth = start_npth + 1
+             else
+                elem_nodes_2d(2,ne_new) = elem_node_map(1,1,np1)
+                start_npth = 1
+             endif
+          endif
+       enddo !i
+
+       ne_count = ne_count+1
+       if(ne_count.gt.num_elems)then
+          ne = 0
+       else
+          if(ne_count .gt. count(elem_list.ne.0))then
+             ne = 0
+          else
+             ne_global = elem_list(ne_count)
+             ne = get_local_elem_1d(ne_global)
+          endif
+       endif
+    enddo ! ne
+       
+    num_nodes_2d = np_new
+    num_elems_2d = ne_new
+    call element_connectivity_2d
+    call line_segments_for_2d_mesh('arcl')
+
+!!! run through a second time, merging the minor branches
+    ne_global = elem_list(1) ! the global stem element number for the 2d mesh
+    ne = get_local_elem_1d(ne_global)  ! the local element number
+    ne_count = 1 ! counter for the 1d elements in the list
+
+    do while (ne /= 0)
+       np1 = elem_nodes(1,ne)   ! start node of current element 
+       np2 = elem_nodes(2,ne)   ! end node of current element
+       radius = elem_field(ne_radius,ne)
+       length = elem_field(ne_length,ne)  ! length of current element
+
+       ! check which type of branch
+       bifn_parent  = .false.
+       entry_branch = .false.
+       major_child  = .false.
+       minor_child  = .false.
+       single_child = .false.
+
+       ne0 = elem_cnct(-1,1,ne) ! parent
+       if(ne.eq.1)then
+          entry_branch = .true.
+       else
+          if(elem_cnct(1,0,ne0).eq.1)then
+             single_child = .true.
+          else
+             ne_sib = elem_cnct(1,1,ne0)
+             if(ne_sib.eq.ne) ne_sib = elem_cnct(1,2,ne0)
+             if(radius.gt.elem_field(ne_radius,ne_sib))then
+                ! major branch has largest radius
+                major_child = .true.
+             else
+                if(abs(radius - elem_field(ne_radius,ne_sib)).le.loose_tol)then
+                   ! if radii the same, check the angles
+                   if(abs(angle_btwn_vectors(elem_direction(:,ne0),elem_direction(:,ne))) &
+                        .gt.abs(angle_btwn_vectors(elem_direction(:,ne0),elem_direction(:,ne_sib))))then
+                      ! minor branch has largest angle
+                      minor_child = .true.
+                   else
+                      ! major branch has smallest angle
+                      major_child = .true.
+                   endif
+                else
+                   ! minor child has smallest radius
+                   minor_child = .true.
+                endif
+             endif
+          endif
+       endif
+       if(minor_child)then
+          if(abs(angle_btwn_vectors(elem_direction(:,ne0), &
+               elem_direction(:,ne))/pi*180.0_dp).gt.60.0_dp.or. &
+               (elem_field(ne_radius,ne)/elem_field(ne_radius,ne0).lt.0.75_dp))then
+          ! if the minor child is more than 75% radius of major, and the angles are similar
+          !if((elem_field(ne_radius,ne)/elem_field(ne_radius,ne_sib).lt.0.75_dp).or. &
+          !     (abs(angle_btwn_vectors(elem_direction(:,ne0),elem_direction(:,ne)) - &
+          !     angle_btwn_vectors(elem_direction(:,ne0),elem_direction(:,ne_sib))).gt. &
+          !     30.0_dp/180.0_dp*pi))then
+             call create_minor_branch(elem_ring,ne,max_num_nodes_2d)
+          else
+            call create_bifurcation(elem_ring,ne)
+          endif
+       endif
+       
+       ne_count = ne_count+1
+       if(ne_count.gt.num_elems)then
+          ne = 0
+       else
+          if(ne_count .gt. count(elem_list.ne.0))then
+             ne = 0
+          else
+             ne_global = elem_list(ne_count)
+             ne = get_local_elem_1d(ne_global)
+          endif
+       endif
+    enddo ! ne
+
+    deallocate(elem_lines_2d)
+    deallocate(scale_factors_2d)
+    deallocate(elem_cnct_2d)
+    deallocate(elems_at_node_2d)
+
+    call element_connectivity_2d
+    call line_segments_for_2d_mesh('arcl')
+    
+    deallocate(elem_node_map)
+    deallocate(short_elements)
+    deallocate(elem_ring)
+    deallocate(node_ring)
+
+  end subroutine make_2d_vessel_from_1d
+
+!!!#############################################################################
+  
+  subroutine create_bifurcation(elem_ring,ne)
+
+    integer :: elem_ring(:,:),ne
+    
+    integer :: elem_minor(2),i,j,ne0,ne_ring,ne_closest1,ne_closest2,ne_sib,n_elem, &
+         n_node,nm_list,np,np1,np2,np_centre,np_close,np_crux,np_list(3)
+    real(dp) :: centres(4,3,3),distance,dist_closest1,dist_closest2,mid_point(3), &
+         radius,smallest_angle,u(3),v(3),w(3),zz(3)
+
+!!! get the parent 1d element number
+    ne0 = elem_cnct(-1,1,ne)
+    
+!!! get the 'sibling' element number
+    ne_sib = elem_cnct(1,1,ne0)
+    if(ne_sib.eq.ne) ne_sib = elem_cnct(1,2,ne0)
+
+!!! DETERMINE THE CONNECTIVITY OF MAJOR AND MINOR ELEMENT RINGS
+    ! calculate the centre of each element in the rings around the parent,
+    ! minor, major branches. Will be used to determine which elements are
+    ! to be edited to create the bifurcation.
+    centres = 0.0_dp
+    do n_elem = 1,4 ! for each element in the ring
+       do n_node = 1,4 ! for each node in the element
+          ! centres for the parent ring
+          ne_ring = elem_ring(n_elem,ne0)
+          np = elem_nodes_2d(n_node,ne_ring) ! parent
+          centres(n_elem,1,:) = centres(n_elem,1,:) + 0.25_dp*node_xyz_2d(1,1,:,np)
+          ! centres for minor branch ring
+          ne_ring = elem_ring(n_elem,ne)
+          np = elem_nodes_2d(n_node,ne_ring) ! minor branch
+          centres(n_elem,2,:) = centres(n_elem,2,:) + 0.25_dp*node_xyz_2d(1,1,:,np)
+          ! centres for major branch ring
+          ne_ring = elem_ring(n_elem,ne_sib)
+          np = elem_nodes_2d(n_node,ne_ring) ! major branch
+          centres(n_elem,3,:) = centres(n_elem,3,:) + 0.25_dp*node_xyz_2d(1,1,:,np)
+       enddo !n_node
+    enddo !n_elem
+    
+    ! Calculate the mid-point coordinates of the minor branch centreline.
+    ! Will be used to calculate which of the major branch ring elements
+    ! are closest to the minor branch.
+    np1 = elem_nodes(1,ne) ! node at Xi=0
+    np2 = elem_nodes(2,ne) ! node at Xi=1
+    mid_point(:) = 0.5_dp * (node_xyz(:,np1) + node_xyz(:,np2))
+
+    ! determine which two major branch elements are closest to the minor branch mid-point
+    ne_closest1 = 0
+    ne_closest2 = 0
+    dist_closest1 = 1.0e6_dp
+    dist_closest2 = 1.0e6_dp
+    ! closest element
+    do n_elem = 1,4
+       u(:) = centres(n_elem,3,:) ! coordinates for major branch ring
+       if(distance_between_points(u,mid_point).lt.dist_closest1)then
+          dist_closest1 = distance_between_points(u,mid_point)
+          ne_closest1 = n_elem
+       endif
+    enddo ! n_elem
+    ! second closest element
+    do n_elem = 1,4
+       if(n_elem.ne.ne_closest1)then
+          u(:) = centres(n_elem,3,:) ! coordinates for major branch ring
+          if(distance_between_points(u,mid_point).lt.dist_closest2)then
+             dist_closest2 = distance_between_points(u,mid_point)
+             ne_closest2 = n_elem
+          endif
+       endif
+    enddo ! n_elem
+    
+    ! order the closest elements for convenience
+    if(elem_ring(ne_closest1,ne_sib).gt.elem_ring(ne_closest2,ne_sib).and.(ne_closest1.ne.4) &
+         .or. (ne_closest1.eq.1.and.ne_closest2.eq.4) &
+         .or. (ne_closest1.eq.4.and.ne_closest2.eq.3)) &
+         call swap_integers(ne_closest1,ne_closest2)
+
+    ! get the node number that is shared by the two closest elements
+    np_centre = elem_nodes_2d(2,elem_ring(ne_closest1,ne_sib))
+    v(:) = node_xyz_2d(1,1,:,np_centre)
+    
+    ! find the closest node at Xi=0 from the minor branch ring. This will be
+    ! replaced by np_centre in the ring of elements for the minor branch
+    dist_closest1 = 1.0e6_dp
+    do n_elem = 1,4
+       ne_ring = elem_ring(n_elem,ne) ! for each element in the ring
+       np = elem_nodes_2d(1,ne_ring)  ! for nodes at Xi=0
+       u(:) = node_xyz_2d(1,1,:,np)
+       if(distance_between_points(u,v).lt.dist_closest1)then
+          dist_closest1 = distance_between_points(u,v)
+          np_close = np
+       endif
+    enddo ! n_node
+
+    ! replace np_close with np_centre in the minor branch ring
+    ! np_list stores the nodes that have been 'joined up'
+    np_list = 0
+    nm_list = 0
+    do n_elem = 1,4
+       ne_ring = elem_ring(n_elem,ne) ! for each element in the ring
+       if(elem_nodes_2d(1,ne_ring).eq.np_close)then
+          np_list(3) = np_centre
+          np_list(2) = elem_nodes_2d(2,elem_ring(ne_closest2,ne_sib))
+          elem_nodes_2d(1,ne_ring) = np_centre
+          elem_nodes_2d(2,ne_ring) = np_list(2)
+          if(n_elem.ne.4)then !merge minor elements into a front node
+             elem_nodes_2d(1,ne_ring+1) = np_list(2)
+          else
+             elem_nodes_2d(1,ne_ring-3) = np_list(2)
+          endif
+       else if(elem_nodes_2d(2,ne_ring).eq.np_close)then
+          np_list(1) = elem_nodes_2d(1,elem_ring(ne_closest1,ne_sib))
+          elem_nodes_2d(2,ne_ring) = np_centre
+          elem_nodes_2d(1,ne_ring) = np_list(1)
+          if(n_elem.ne.1)then !merge minor elements into a front node
+             elem_nodes_2d(2,ne_ring-1) = np_list(1)
+          else
+             elem_nodes_2d(2,ne_ring+3) = np_list(1)
+          endif
+       else
+          nm_list = nm_list + 1
+          elem_minor(nm_list) = elem_ring(n_elem,ne)
+       endif
+    enddo ! n_elem
+
+    ! get the node number for the node that is still 'hanging' (unjoined)
+    do n_elem = 1,4
+       ne_ring = elem_ring(n_elem,ne) ! for each element in the ring
+       np = elem_nodes_2d(1,ne_ring)
+       if(.not.inlist(np,np_list)) np_crux = np
+    enddo
+
+    ! replace np_centre in the sibling ring of elements with np_crux
+    elem_nodes_2d(2,elem_ring(ne_closest1,ne_sib)) = np_crux
+    elem_nodes_2d(1,elem_ring(ne_closest2,ne_sib)) = np_crux
+
+!!! SET THE CRUX LOCATION AND DERIVATIVES
+    ! set the crux node location to be in the direction of the average child branch 
+    ! direction (ne and ne_sib) at a distance that is consistent with the radius of
+    ! the major branch. That is:
+    !     xyz_crux = xyz(at start of ne) + average direction (of ne and ne_sib)*distance
+    !     where distance = radius(ne_sib)/angle(between ne_sib and average direction)
+    !     and angle(between ne_sib and average direction) = acos(dot product(ne_sib, average))
+
+    ! direction mid-way between the two child branches
+    u(:) = elem_direction(:,ne) ! unit vector for direction of minor branch
+    v(:) = elem_direction(:,ne_sib) ! unit vector for direction of sibling branch
+    zz(:) = unit_vector(0.5_dp * (u(:) + v(:)))
+    smallest_angle = acos(scalar_product_3(zz,v)) ! angle should be smallest for major branch
+    distance = elem_field(ne_radius,ne_sib)/sin(smallest_angle)
+    node_xyz_2d(1,1,:,np_crux) = node_xyz(:,elem_nodes(1,ne)) + zz(:) * distance
+
+    ! increase the number of versions at the crux node
+    node_versn_2d(np_crux) = 2
+    node_xyz_2d(:,2,:,np_crux) = node_xyz_2d(:,1,:,np_crux) ! initialise to the 1st version values
+    elem_versn_2d(2,elem_ring(ne_closest1,ne_sib)) = 2 ! minor branch uses version 1, major version 2
+    elem_versn_2d(1,elem_ring(ne_closest2,ne_sib)) = 2
+
+!!! SET THE FRONT AND BACK NODE LOCATION AND DERIVATIVES
+    ! adjust the 'front' and 'back' bifurcation nodes so that the radial dimension
+    ! is the weighted average of the child radii and parent radius
+    radius = 0.5_dp * (elem_field(ne_radius,ne)+elem_field(ne_radius,ne_sib))
+    radius = 0.5_dp * (elem_field(ne_radius,ne0) + radius)
+    u(:) = node_xyz_2d(1,1,:,np_list(1))
+    v(:) = node_xyz_2d(1,1,:,np_list(2))
+    node_xyz_2d(1,1,:,np_list(1)) = 0.5_dp*(u(:)+v(:)) - radius * direction_point_to_point(u,v)
+    node_xyz_2d(1,1,:,np_list(2)) = 0.5_dp*(u(:)+v(:)) + radius * direction_point_to_point(u,v)
+
+    ! use the direction from front to back to define crux derivative
+    node_xyz_2d(2,1,:,np_crux) = -direction_point_to_point(u,v)
+    node_xyz_2d(2,2,:,np_crux) = -node_xyz_2d(2,1,:,np_crux)
+
+    ! increase the number of versions at the front and back nodes (for different derivatives)
+    do i = 1,2
+       node_versn_2d(np_list(i)) = 3 
+       forall(j=2:3) node_xyz_2d(1,j,:,np_list(i)) = node_xyz_2d(1,1,:,np_list(i))
+       node_xyz_2d(2,2,:,np_list(i)) = node_xyz_2d(3,1,:,np_list(i)) ! 1st derivative
+       node_xyz_2d(2,3,:,np_list(i)) = -node_xyz_2d(2,2,:,np_list(i))
+       node_xyz_2d(3,2,:,np_list(i)) = 0.0_dp ! 2nd derivative
+       node_xyz_2d(3,3,:,np_list(i)) = node_xyz_2d(3,2,:,np_list(i))
+    enddo ! i
+        
+    elem_versn_2d(1,elem_ring(ne_closest1,ne_sib)) = 2 ! use 2nd version for 1st node in ne_closest1
+    elem_versn_2d(2,elem_ring(ne_closest2,ne_sib)) = 3
+    if(elem_nodes_2d(2,elem_minor(1)).eq.elem_nodes_2d(1,elem_ring(ne_closest1,ne_sib)))then
+       elem_versn_2d(2,elem_minor(1)) = 3
+       elem_versn_2d(1,elem_minor(2)) = 2
+    else
+       elem_versn_2d(1,elem_minor(1)) = 2
+       elem_versn_2d(2,elem_minor(2)) = 3
+    endif
+
+!!! ADJUST THE 'SIDE' NODE LOCATIONS TO PROVIDE MORE CURVATURE INTO THE BIFURCATION
+    np1 = elem_nodes_2d(2,elem_cnct_2d(-2,1,elem_ring(ne_closest1,ne_sib))) ! the Xi2=0 node in immediate distal element
+    np2 = np_list(3)
+    if(np1.ne.0) &
+       node_xyz_2d(1,1,:,np2) = 0.8_dp * node_xyz_2d(1,1,:,np2) + 0.2_dp * node_xyz_2d(1,1,:,np1)
+    np2 = elem_nodes_2d(2,elem_cnct_2d(1,1,elem_ring(ne_closest2,ne_sib))) ! the Xi1=1 node in immediate clockwise element
+    np1 = elem_nodes_2d(2,elem_cnct_2d(-2,1,elem_cnct_2d(1,1,elem_ring(ne_closest2,ne_sib))))
+    if(np1.ne.0.and.np2.ne.0) &
+       node_xyz_2d(1,1,:,np2) = 0.8_dp * node_xyz_2d(1,1,:,np2) + 0.2_dp * node_xyz_2d(1,1,:,np1)
+    
+  end subroutine create_bifurcation
+  
+!!!#############################################################################
+
+  subroutine swap_integers(n_1,n_2)
+
+    integer :: n_1,n_2
+    integer :: n_temp
+
+    n_temp = n_1
+    n_1 = n_2
+    n_2 = n_temp
+
+  end subroutine swap_integers
+    
+!!!#############################################################################
+  
+  subroutine create_minor_branch(elem_ring,ne,max_num_nodes_2d)
+
+    integer :: elem_ring(:,:),ne,max_num_nodes_2d
+    
+    integer :: i,j,ne0,n_elem,ne_closest,ne_closest_parent,nelem_match(4,2),ne_new, &
+         ne_minor,ne_next,ne_parent,ne_ring,np1,np2,np_centre,np_closest, &
+         np_minor,np_new,np_ring,ntri,num_triangles,num_vertices,surface_elems(1)
+    integer,allocatable :: triangle(:,:)
+    real(dp) :: area,area_triangle,centre(3),denominator,dist_closest,distance, &
+         gamma,keep_point(3),length,line_direction(3), &
+         norm_v(3),point(3),P1(3),P2(3),P3(3),u(3),v(3)
+    real(dp),allocatable :: vertex_xyz(:,:)
+    character(len=MAX_FILENAME_LEN) :: EXNODEFILE
+    character(len=MAX_STRING_LEN) :: groupname
+    logical :: found
+
+!!! get the parent 1d element number
+    ne0 = elem_cnct(-1,1,ne)
+    
+!!! FIND CLOSEST NODE ON PARENT-MAJOR JUNCTION TO CENTRE OF MINOR BRANCH ELEMENT RING
+    np1 = elem_nodes(1,ne) ! node at Xi1=0
+    u(:) = node_xyz(:,np1) + elem_direction(:,ne) * elem_field(ne_radius,ne0)
+    dist_closest = 1.0e6_dp
+    do n_elem = 1,4
+       ne_ring = elem_ring(n_elem,ne0) ! 2d element number for the n_elem'th ring around parent
+       np_ring = elem_nodes_2d(3,ne_ring)
+       v(:) = node_xyz_2d(1,1,:,np_ring)
+       distance = distance_between_points(u,v)
+       if(distance.lt.dist_closest)then
+          dist_closest = distance
+          ne_closest = ne_ring
+          np_closest = np_ring
+       endif
+    enddo
+    ne_closest_parent = ne_closest
+    np_centre = np_closest
+
+!!! FIND CLOSEST NODE ON MINOR RING TO THE 'CLOSEST' PARENT ELEMENT, AND SET UP
+!!! VERSIONS OF DERIVATIVES FOR THE MINOR RING NODES
+    u(:) = node_xyz_2d(1,1,:,elem_nodes_2d(4,ne_closest_parent)) 
+    dist_closest = 1.0e6_dp
+    do n_elem = 1,4
+       ne_ring = elem_ring(n_elem,ne) ! minor branch elements
+       np_ring = elem_nodes_2d(2,ne_ring)
+       ! set up the versions of derivatives, to be used later
+       node_versn_2d(np_ring) = 3 ! the number of versions
+       forall (j=2:3) node_xyz_2d(1,j,:,np_ring) = node_xyz_2d(1,1,:,np_ring)
+       v(:) = node_xyz_2d(1,1,:,np_ring)
+       distance = distance_between_points(u,v)
+       if(distance.lt.dist_closest)then
+          dist_closest = distance
+          ne_closest = ne_ring
+          np_closest = np_ring
+       endif
+    enddo
+    
+    ! record the elements on the parent-major junction that align with the minor elements
+    nelem_match(1,1) = ne_closest_parent
+    nelem_match(1,2) = ne_closest
+    nelem_match(2,1) = elem_cnct_2d(-1,1,nelem_match(1,1)) ! adjacent in -Xi1 direction
+    nelem_match(2,2) = elem_cnct_2d(-1,1,nelem_match(1,2)) ! adjacent in -Xi2 direction
+    nelem_match(3,1) = elem_cnct_2d(2,1,nelem_match(2,1))  ! adjacent in +Xi2 direction
+    nelem_match(3,2) = elem_cnct_2d(-1,1,nelem_match(2,2)) ! adjacent in -Xi2 direction
+    nelem_match(4,1) = elem_cnct_2d(1,1,nelem_match(3,1))  ! adjacent in +Xi1 direction
+    nelem_match(4,2) = elem_cnct_2d(-1,1,nelem_match(3,2)) ! adjacent in -Xi2 direction
+    
+!!! SHIFT THE MINOR BRANCH NODES TO BE ON THE PARENT/MAJOR SURFACE
+    do i = 1,4
+       np1 = elem_nodes_2d(1,nelem_match(i,2)) ! minor branch node
+       np2 = elem_nodes_2d(3,nelem_match(i,2)) ! adjacent node in +Xi2
+       u(:) = node_xyz_2d(1,1,:,np1) ! location of minor branch node
+       line_direction = direction_point_to_point(node_xyz_2d(1,1,:,np2),node_xyz_2d(1,1,:,np1))
+       found = .false.
+       do j = 1,4
+          ne_parent = nelem_match(j,1) ! parent-major element
+          surface_elems(1) = ne_parent
+          call triangles_from_surface(num_triangles,num_vertices,surface_elems, &
+               triangle,vertex_xyz)
+          do ntri = 1,num_triangles
+             ! get the normal to each triangle
+             P1(1:3) = vertex_xyz(1:3,triangle(1,ntri))
+             P2(1:3) = vertex_xyz(1:3,triangle(2,ntri))
+             P3(1:3) = vertex_xyz(1:3,triangle(3,ntri))
+             norm_v = unit_norm_to_three_points(P1,P2,P3) ! unit normal to triangle plane
+             denominator = scalar_product_3(norm_v,line_direction) ! denominator is zero if line parallel to plane
+             if(abs(denominator).gt.loose_tol)then ! not normal to the plane of the triangle
+                ! calculate the distance of the surface point from point_xyz
+                length = scalar_product_3(norm_v,P1-u)/denominator ! distance from np1 to the triangle plane
+                point = u + line_direction * length ! point on the triangle plane that the line passes through
+                area_triangle = area_between_two_vectors(P1-P2,P1-P3) ! area of triangle
+                ! calculate summed area of triangles that join the triangle vertices to the
+                ! point on the triangle plane. if the area is the same as the area of the triangle,
+                ! then the point is within the triangle
+                area = area_between_two_vectors(P1-point,P2-point)+ & 
+                     area_between_two_vectors(P1-point,P3-point)+area_between_two_vectors(P2-point,P3-point)
+                if(abs(area_triangle-area).lt.loose_tol)then
+                   keep_point = point
+                   found = .true.
+                endif
+             endif
+          enddo ! ntri
+       enddo !j
+       node_xyz_2d(1,1,:,np1) = keep_point(:)
+    enddo !i
+    deallocate(triangle)
+    deallocate(vertex_xyz)
+
+!!! MOVE THE ADJACENT PARENT/MAJOR JUNCTION NODE TO BE CLOES TO ORTHOGONAL TO MINOR CENTRELINE
+    do i = 3,4
+       ne_parent = nelem_match(i,1)
+       ne_minor = nelem_match(i,2)
+       if(i.eq.4)then
+          np1 = elem_nodes_2d(2,ne_parent) ! at Xi(1,0) on parent
+          np2 = elem_nodes_2d(4,ne_parent) ! at Xi(1,1) on parent
+          np_minor = elem_nodes_2d(1,ne_minor)
+       else
+          np1 = elem_nodes_2d(1,ne_parent) ! at Xi(1,0) on parent
+          np2 = elem_nodes_2d(3,ne_parent) ! at Xi(1,1) on parent
+          np_minor = elem_nodes_2d(2,ne_minor)
+       endif
+       u(:) = node_xyz_2d(1,1,:,np_minor) - node_xyz_2d(1,1,:,np1)
+       v(:) = unit_vector(node_xyz_2d(1,1,:,np2) - node_xyz_2d(1,1,:,np1))
+       node_xyz_2d(1,1,:,np1) = node_xyz_2d(1,1,:,np1) + v(:) * scalar_product_3(u,v)
+    enddo
+    
+!!! MAKE A NEW NODE ON EACH RESPECTIVE PARENT/MAJOR ELEMENT
+    do i = 1,4
+       num_nodes_2d = num_nodes_2d + 1
+       np_new = num_nodes_2d
+       nodes_2d(np_new) = np_new
+       ne_parent = nelem_match(i,1)
+       ne_minor = nelem_match(i,2)
+       if(i.eq.1.or.i.eq.4)then
+          np1 = elem_nodes_2d(2,ne_parent) ! at Xi(1,0) on parent
+          np2 = elem_nodes_2d(4,ne_parent) ! at Xi(1,1) on parent
+       else
+          np1 = elem_nodes_2d(1,ne_parent) ! at Xi(1,0) on parent
+          np2 = elem_nodes_2d(3,ne_parent) ! at Xi(1,1) on parent
+       endif
+       
+       if(i.eq.1.or.i.eq.3)then
+          np_minor = elem_nodes_2d(1,ne_minor)
+       else if(i.eq.2.or.i.eq.4)then
+          np_minor = elem_nodes_2d(2,ne_minor)
+       endif
+
+       ! position the new node such that the minor branch node is orthogonal to the
+       ! line joining np1 and np2
+       u(:) = node_xyz_2d(1,1,:,np_minor) - node_xyz_2d(1,1,:,np1)
+       v(:) = unit_vector(node_xyz_2d(1,1,:,np2) - node_xyz_2d(1,1,:,np1))
+       node_xyz_2d(1,1,:,np_new) = node_xyz_2d(1,1,:,np1) + v(:) * scalar_product_3(u,v)
+
+       ! check that the new node position isn't too close to the adjusted parent/major
+       ! junction node. shift node np_new if it is too close
+       gamma = distance_between_points(node_xyz_2d(1,1,:,np_new),node_xyz_2d(1,1,:,np2)) &
+            /distance_between_points(node_xyz_2d(1,1,:,np1),node_xyz_2d(1,1,:,np2))
+       if(i.le.2.and.gamma.lt.0.25_dp) then
+          node_xyz_2d(1,1,:,np_new) = 0.25_dp * node_xyz_2d(1,1,:,np1) + 0.75_dp * node_xyz_2d(1,1,:,np2)
+       else if(i.gt.2.and.gamma.gt.0.75_dp) then
+          !node_xyz_2d(1,1,:,np_new) = 0.25_dp * node_xyz_2d(1,1,:,np1) + 0.75_dp * node_xyz_2d(1,1,:,np2)
+       endif
+
+       ! increase the number of versions for the minor branch element nodes, set deriv values
+       ne_minor = nelem_match(i,2)
+       np_minor = elem_nodes_2d(2,ne_minor)  ! at Xi(1,0) on minor
+       if(i.eq.1.or.i.eq.3)then
+          node_versn_2d(np_minor) = 2 ! the number of versions
+          node_xyz_2d(1,2,:,np_minor) = node_xyz_2d(1,1,:,np_minor)
+          node_xyz_2d(2,2,:,np_minor) = 0.25_dp * node_xyz_2d(2,1,:,np_centre) &
+               - 0.75_dp * node_xyz_2d(3,1,:,np_minor)
+          if(i.eq.1)then
+             node_xyz_2d(3,2,:,np_minor) = node_xyz_2d(2,1,:,np_minor) * 0.5_dp
+          elseif(i.eq.3)then
+             node_xyz_2d(3,2,:,np_minor) = -node_xyz_2d(2,1,:,np_minor) * 0.5_dp
+          endif
+       else ! 2 or 4
+          node_versn_2d(np_minor) = 4 ! the number of versions
+          forall (j = 2:4) node_xyz_2d(1,j,:,np_minor) = node_xyz_2d(1,1,:,np_minor)
+          node_xyz_2d(2,2,:,np_minor) = node_xyz_2d(2,1,:,np_centre)
+          node_xyz_2d(3,2,:,np_minor) = node_xyz_2d(3,1,:,np_centre)
+          node_xyz_2d(2,3,:,np_minor) = node_xyz_2d(2,2,:,np_minor)
+          if(i.eq.2)then
+             node_xyz_2d(3,3,:,np_minor) = node_xyz_2d(2,1,:,np_minor) * 0.5_dp
+             node_xyz_2d(3,4,:,np_minor) = -node_xyz_2d(2,1,:,np_minor) * 0.5_dp
+          else if(i.eq.4)then
+             node_xyz_2d(3,3,:,np_minor) = -node_xyz_2d(2,1,:,np_minor) * 0.5_dp
+             node_xyz_2d(3,4,:,np_minor) = node_xyz_2d(2,1,:,np_minor) * 0.5_dp
+          endif
+          node_xyz_2d(2,4,:,np_minor) = node_xyz_2d(2,2,:,np_minor) !**
+       endif
+       ! make a new element that joins to the new parent/major node
+       num_elems_2d = num_elems_2d + 1
+       ne_new = num_elems_2d
+       elems_2d(ne_new) = ne_new
+       select case(i)
+       case(1)
+          elem_nodes_2d(1,ne_new) = elem_nodes_2d(1,ne_minor) ! 1,4
+          elem_versn_2d(1,ne_new) = 3 !1
+          elem_nodes_2d(2,ne_new) = num_nodes_2d !1
+          elem_nodes_2d(3,ne_new) = np_minor !1,4
+          elem_versn_2d(3,ne_new) = 2 !1
+          elem_nodes_2d(4,ne_new) = elem_nodes_2d(4,ne_parent) !1
+          ! replace the nodes at Xi2=1 in the original parent/major element
+          elem_nodes_2d(3,ne_parent) = elem_nodes_2d(1,ne_minor) !1
+          elem_nodes_2d(4,ne_parent) = num_nodes_2d !1
+          elem_versn_2d(3,ne_parent) = 2 !1
+       case(2)
+          elem_nodes_2d(1,ne_new) = num_nodes_2d !2
+          elem_nodes_2d(2,ne_new) = np_minor !2,3
+          elem_versn_2d(2,ne_new) = 4 !2
+          elem_nodes_2d(3,ne_new) = elem_nodes_2d(3,ne_parent) !2
+          elem_nodes_2d(4,ne_new) = elem_nodes_2d(1,ne_minor) !2,3
+          elem_versn_2d(4,ne_new) = 2 !2
+          ! replace the nodes at Xi2=1 in the original parent/major element
+          elem_nodes_2d(3,ne_parent) = num_nodes_2d !2
+          elem_nodes_2d(4,ne_parent) = np_minor !2
+          elem_versn_2d(4,ne_parent) = 2 !2
+       case(3)
+          elem_nodes_2d(1,ne_new) = elem_nodes_2d(1,ne_parent) !3
+          elem_nodes_2d(2,ne_new) = np_minor !2,3
+          elem_versn_2d(2,ne_new) = 2 !3
+          elem_nodes_2d(3,ne_new) = num_nodes_2d !3
+          elem_nodes_2d(4,ne_new) = elem_nodes_2d(1,ne_minor) !2,3
+          elem_versn_2d(4,ne_new) = 3 !3
+          ! replace the nodes at Xi2=0 in the original parent/major element
+          elem_nodes_2d(1,ne_parent) = num_nodes_2d !3
+          elem_nodes_2d(2,ne_parent) = elem_nodes_2d(1,ne_minor) !3
+          elem_versn_2d(2,ne_parent) = 2 !3
+       case(4)
+          elem_nodes_2d(1,ne_new) = elem_nodes_2d(1,ne_minor) !1,4
+          elem_versn_2d(1,ne_new) = 2 !4
+          elem_nodes_2d(2,ne_new) = elem_nodes_2d(2,ne_parent) !4
+          elem_nodes_2d(3,ne_new) = np_minor !1,4
+          elem_versn_2d(3,ne_new) = 4 !4
+          elem_nodes_2d(4,ne_new) = num_nodes_2d !4
+          ! replace the nodes at Xi2=0 in the original parent/major element
+          elem_nodes_2d(1,ne_parent) = np_minor !4
+          elem_versn_2d(1,ne_parent) = 2 !4
+          elem_nodes_2d(2,ne_parent) = num_nodes_2d !4
+       end select
+    enddo
+
+  end subroutine create_minor_branch
+  
+!!!#############################################################################
+  
+  subroutine make_2d_vessel_from_1d0(elem_list)
     !*make_2d_vessel_from_1d:* create a surface mesh that aligns with the
     ! centrelines of a 1D tree, and located at distance 'radius' from the centre.
     ! a template for a set of 5 nodes (that together define a bifurcation) is
@@ -1760,6 +2488,12 @@ contains
              np2 = elem_nodes(2,ne_child) ! child element end node
              length = max(radius*1.5_dp, cruxdist*1.25_dp, 0.5_dp*(cruxdist*1.25_dp+ &
                   (elem_field(ne_length,ne_child) - radius*0.5_dp)))
+!             if(abs(angle_btwn_vectors(elem_direction(:,ne_child), &
+!                  elem_direction(:,ne))/pi*180.0_dp).gt.60.0_dp)then
+!                length = radius * 1.1_dp
+!             elseif(elem_field(ne_radius,ne_child).lt.0.75_dp*radius)then
+!                length = radius * 1.1_dp
+!             endif
              ring_distance(ne_child) = length
              
              ! calculate the rotation angle for the branch
@@ -1859,13 +2593,16 @@ contains
     call element_connectivity_2d
     call line_segments_for_2d_mesh('arcl')
 
+    ! following is original for airways
     ! make sure that the nodes are nicely distributed along the branches
-    !call redistribute_mesh_nodes_2d_from_1d
+    call redistribute_mesh_nodes_2d_from_1d
+
+    ! following is new because of vessel angles
     ! merge unnecessary elements. Most branches will end up with one element in Xi+2
     call merge_2d_from_1d_mesh
     ! remove very short branches where a trifurcation is more appropriate
-    call merge_trifurcations(short_elements)
-    call redistribute_mesh_nodes_2d_from_1d
+    !call merge_trifurcations(short_elements)
+    !call redistribute_mesh_nodes_2d_from_1d
 
     deallocate(elem_node_map)
     deallocate(ring_distance)
@@ -1873,7 +2610,7 @@ contains
     
     call enter_exit(sub_name,2)
     
-  end subroutine make_2d_vessel_from_1d
+  end subroutine make_2d_vessel_from_1d0
 
 !!!#############################################################################
 
@@ -2001,36 +2738,10 @@ contains
        ne_parent = elem_cnct(-1,1,ne_parent)
     enddo
     
-
-!!! .....Calculate the rotation and translation matrices      
-
 !!! np1 == start node, np2 == end node, np3 == end of child 1, np4 == end of child 2
+!!! .....Calculate the rotation and translation matrices      
+    call calc_rotat_trans_mats(ne,np1,Rx,Ry,Txyz)
 
-!!! translation = the displacement from (0,0,0) to np1 (= -node_xyz(np1))
-    Txyz(1:3) = -node_xyz(1:3,np1)   ! translation of the generic nodes
-
-!!! Rotation matrices: Rx(-1) = | 1  0    0  |   Ry(-1) = | d 0 -a |   Rz = | cos(t)  -sin(t) |
-!!!                             | 0 c/d -b/d |            | 0 1  0 |        | sin(t)   cos(t) |
-!!!                             | 0 b/d  c/d |            | a 0  d |        |   0        0    |
-!!! where U(a,b,c) == branch direction (elem_direction(1:3,ne)) and d = sqrt(b2 + c2)
-!!! see www.paulbourke.net/geometry/rotate for explanation
-    
-    Rx = 0.0_dp
-    Ry = 0.0_dp
-    Rx(1,1) = 1.0_dp !x-x = 1
-    ln_23 = sqrt(elem_direction(2,ne)**2 + elem_direction(3,ne)**2)
-    if(abs(ln_23).lt.zero_tol) ln_23 = 1.0_dp
-    Rx(2,2) = elem_direction(3,ne)/ln_23
-    Rx(2,3) = elem_direction(2,ne)/ln_23
-    Rx(3,2) = -Rx(2,3)
-    Rx(3,3) = Rx(2,2)
-    
-    Ry(2,2) = 1.0_dp !x-x = 1
-    Ry(1,1) = ln_23
-    Ry(1,3) = elem_direction(1,ne)
-    Ry(3,1) = -Ry(1,3)
-    Ry(3,3) = Ry(1,1)
-    
     !.....The angle for rotation about the z-axis is equal to the angle
     !.....between the normal to the plane containing bifurcation nodes and
     !.....the theta=0 direction
@@ -2099,6 +2810,43 @@ contains
     
   end subroutine mesh_rotate_about_axis
     
+!!!#############################################################################
+
+  subroutine calc_rotat_trans_mats(ne,np1,Rx,Ry,Txyz)
+    !*calc_rotat_trans_mats:* calculates rotation and translation matrics for
+    ! element ne with start node np1
+
+    integer,intent(in) :: ne,np1
+    real(dp) :: Rx(:,:),Ry(:,:),Txyz(:)
+    real(dp) :: ln_23
+    
+    !!! translation = the displacement from (0,0,0) to np1 (= -node_xyz(np1))
+    Txyz(1:3) = -node_xyz(1:3,np1)   ! translation of the generic nodes
+
+!!! Rotation matrices: Rx(-1) = | 1  0    0  |   Ry(-1) = | d 0 -a |   Rz = | cos(t)  -sin(t) |
+!!!                             | 0 c/d -b/d |            | 0 1  0 |        | sin(t)   cos(t) |
+!!!                             | 0 b/d  c/d |            | a 0  d |        |   0        0    |
+!!! where U(a,b,c) == branch direction (elem_direction(1:3,ne)) and d = sqrt(b2 + c2)
+!!! see www.paulbourke.net/geometry/rotate for explanation
+    
+    Rx = 0.0_dp
+    Ry = 0.0_dp
+    Rx(1,1) = 1.0_dp !x-x = 1
+    ln_23 = sqrt(elem_direction(2,ne)**2 + elem_direction(3,ne)**2)
+    if(abs(ln_23).lt.zero_tol) ln_23 = 1.0_dp
+    Rx(2,2) = elem_direction(3,ne)/ln_23
+    Rx(2,3) = elem_direction(2,ne)/ln_23
+    Rx(3,2) = -Rx(2,3)
+    Rx(3,3) = Rx(2,2)
+    
+    Ry(2,2) = 1.0_dp !x-x = 1
+    Ry(1,1) = ln_23
+    Ry(1,3) = elem_direction(1,ne)
+    Ry(3,1) = -Ry(1,3)
+    Ry(3,3) = Ry(1,1)
+
+  end subroutine calc_rotat_trans_mats
+  
 !!!#############################################################################
 
   subroutine mesh_rotate_about_axis_basic(np,axis,centre,theta)
@@ -3054,9 +3802,14 @@ contains
     
     sub_name = 'line_segments_for_2d_mesh'
     call enter_exit(sub_name,1)
-    
-    if(.not.allocated(elem_lines_2d)) allocate(elem_lines_2d(4,num_elems_2d))
-    if(.not.allocated(scale_factors_2d)) allocate(scale_factors_2d(16,num_elems_2d))
+
+    ! allocate elem_lines_2d, scale_factors_2d,lines_2d,line_versn_2d,lines_in_elem,nodes_in_line,arclength
+    if(allocated(elem_lines_2d)) deallocate(elem_lines_2d)
+    if(allocated(scale_factors_2d)) deallocate(scale_factors_2d)
+    allocate(elem_lines_2d(4,num_elems_2d))
+    allocate(scale_factors_2d(16,num_elems_2d))
+    !if(.not.allocated(elem_lines_2d)) allocate(elem_lines_2d(4,num_elems_2d))
+    !if(.not.allocated(scale_factors_2d)) allocate(scale_factors_2d(16,num_elems_2d))
     
     elem_lines_2d=0
     num_lines_2d = 0
@@ -3086,11 +3839,22 @@ contains
        
        elem_lines_2d = 0
        
-       if(.not.allocated(lines_2d)) allocate(lines_2d(0:num_lines_2d))
-       if(.not.allocated(line_versn_2d)) allocate(line_versn_2d(2,3,num_lines_2d))
-       if(.not.allocated(lines_in_elem)) allocate(lines_in_elem(0:4,num_lines_2d))
-       if(.not.allocated(nodes_in_line)) allocate(nodes_in_line(3,0:3,num_lines_2d))
-       if(.not.allocated(arclength)) allocate(arclength(num_lines_2d)) 
+       if(allocated(lines_2d)) deallocate(lines_2d)
+       if(allocated(line_versn_2d)) deallocate(line_versn_2d)
+       if(allocated(lines_in_elem)) deallocate(lines_in_elem)
+       if(allocated(nodes_in_line)) deallocate(nodes_in_line)
+       if(allocated(arclength)) deallocate(arclength)
+       allocate(lines_2d(0:num_lines_2d))
+       allocate(line_versn_2d(2,3,num_lines_2d))
+       allocate(lines_in_elem(0:4,num_lines_2d))
+       allocate(nodes_in_line(3,0:3,num_lines_2d))
+       allocate(arclength(num_lines_2d)) 
+
+       !if(.not.allocated(lines_2d)) allocate(lines_2d(0:num_lines_2d))
+       !if(.not.allocated(line_versn_2d)) allocate(line_versn_2d(2,3,num_lines_2d))
+       !if(.not.allocated(lines_in_elem)) allocate(lines_in_elem(0:4,num_lines_2d))
+       !if(.not.allocated(nodes_in_line)) allocate(nodes_in_line(3,0:3,num_lines_2d))
+       !if(.not.allocated(arclength)) allocate(arclength(num_lines_2d)) 
        lines_in_elem=0
        lines_2d=0
        nodes_in_line=0
@@ -3106,6 +3870,7 @@ contains
           if(ne_adjacent.gt.0)then
              if(elem_lines_2d(4,ne_adjacent) == 0) MAKE=.TRUE.
           endif
+
           if(MAKE)then
              num_lines_2d = num_lines_2d+1
              lines_2d(num_lines_2d) = num_lines_2d !record a new line number
@@ -3172,7 +3937,6 @@ contains
              !             elem_lines_2d(1,ne)=elem_lines_2d(2,ne_adjacent)
           endif
           
-          !*! new:       
           MAKE=.TRUE.
           ne_adjacent=elem_cnct_2d(1,1,ne)
           if(ne_adjacent.gt.0)then
@@ -4065,54 +4829,6 @@ contains
   
 !!!#############################################################################
   
-  function get_local_node_f(ndimension,np_global) result(get_local_node)
-    
-    integer,intent(in) :: ndimension,np_global
-    ! Local variables
-    integer :: np
-    integer :: get_local_node
-    logical :: found
-
-    ! --------------------------------------------------------------------------
-
-    found = .false.
-    np = 0
-    
-    select case (ndimension)
-       
-    case(1)
-       do while (.not.found)
-          np=np+1
-          if(np.gt.num_nodes) then
-             found = .true.
-             write(*,'('' Warning: local node not found for global node'',I6)') np_global
-          endif
-          if(np_global.eq.nodes(np))then
-             get_local_node = np
-             found = .true.
-          endif
-       enddo
-       
-    case(2)
-       do while (.not.found)
-          np=np+1
-          if(np.gt.num_nodes_2d) then
-             found = .true.
-             write(*,'('' Warning: local node not found for global node'',I6)') np_global
-             read(*,*)
-          endif
-          if(np_global.eq.nodes_2d(np))then
-             get_local_node = np
-             found = .true.
-          endif
-       enddo
-       
-    end select
-    
-  end function get_local_node_f
-  
-!!!#############################################################################
-  
   function get_final_integer(string)
     !*get_final_integer*
     
@@ -4482,40 +5198,22 @@ contains
             + phi_20(1)*phi_10(2)*x(1,1:3,2) &
             + phi_10(1)*phi_20(2)*x(1,1:3,3) &
             + phi_20(1)*phi_20(2)*x(1,1:3,4) &
-            + phi_11(1)*phi_10(2)*x(2,1:3,1) &
-            + phi_21(1)*phi_10(2)*x(2,1:3,2) &
-            + phi_11(1)*phi_20(2)*x(2,1:3,3) &
-            + phi_21(1)*phi_20(2)*x(2,1:3,4) &
-            + phi_10(1)*phi_11(2)*x(3,1:3,1) &
-            + phi_20(1)*phi_11(2)*x(3,1:3,2) &
-            + phi_10(1)*phi_21(2)*x(3,1:3,3) &
-            + phi_20(1)*phi_21(2)*x(3,1:3,4) &
-            + phi_11(1)*phi_11(2)*x(4,1:3,1) &
-            + phi_21(1)*phi_11(2)*x(4,1:3,2) &
-            + phi_11(1)*phi_21(2)*x(4,1:3,3) &
-            + phi_21(1)*phi_21(2)*x(4,1:3,4)
+            + phi_11(1)*phi_10(2)*x(2,1:3,1) * scale_factors_2d(2,ne) &
+            + phi_21(1)*phi_10(2)*x(2,1:3,2) * scale_factors_2d(6,ne) &
+            + phi_11(1)*phi_20(2)*x(2,1:3,3) * scale_factors_2d(10,ne) &
+            + phi_21(1)*phi_20(2)*x(2,1:3,4) * scale_factors_2d(14,ne) &
+            + phi_10(1)*phi_11(2)*x(3,1:3,1) * scale_factors_2d(3,ne) &
+            + phi_20(1)*phi_11(2)*x(3,1:3,2) * scale_factors_2d(7,ne) &
+            + phi_10(1)*phi_21(2)*x(3,1:3,3) * scale_factors_2d(11,ne) &
+            + phi_20(1)*phi_21(2)*x(3,1:3,4) * scale_factors_2d(15,ne) &
+            + phi_11(1)*phi_11(2)*x(4,1:3,1) * scale_factors_2d(4,ne) &
+            + phi_21(1)*phi_11(2)*x(4,1:3,2) * scale_factors_2d(8,ne) &
+            + phi_11(1)*phi_21(2)*x(4,1:3,3) * scale_factors_2d(12,ne) &
+            + phi_21(1)*phi_21(2)*x(4,1:3,4) * scale_factors_2d(16,ne)
     end select
     
   end function coord_at_xi
   
-!!!#############################################################################
-
-  function get_local_elem(ne_global)
-
-!!! dummy arguments
-    integer,intent(in) :: ne_global
-!!! local variables
-    integer :: ne
-    integer :: get_local_elem
-
-    ! --------------------------------------------------------------------------
-
-    do ne=1,num_elems_2d
-       if(ne_global.eq.elems_2d(ne)) get_local_elem = ne
-    enddo
-
-  end function get_local_elem
-
 !!!#############################################################################
 
   function get_local_elem_1d(ne_global)
@@ -4661,6 +5359,139 @@ contains
 !!!#############################################################################
 
   subroutine write_surface_geo(element_spline,elem_surfaces,ifile,ncount_point, &
+       ncount_loop,ncount_spline,np_offset)
+    
+    integer :: element_spline(:,:),elem_surfaces(:,:),ifile,ncount_point, &
+         ncount_loop,ncount_spline,np_offset
+    ! Local variables
+    integer:: i,j,k,line1,line2,line3,line4,line_num(4),ne,ni1,ni2,nk,np,np_highest,np1,np2, &
+         num_crux_lines,nv1,nv2
+    integer,allocatable :: crux_lines(:,:)
+    real(dp) :: phi_1_0,phi_1_1,phi_2_0,phi_2_1,point_xyz(3),xidivn(3)
+    logical :: make
+    character(len=60) :: sub_name
+    
+    ! --------------------------------------------------------------------------
+    
+    sub_name = 'write_surface_geo'
+    call enter_exit(sub_name,1)
+
+    forall (i=1:3) xidivn(i) = 0.25_dp * i
+    
+!!! Make a gmsh 'point' at each of the surface mesh nodes
+    write(ifile,'(''/* Points */'')')
+    do np = 1,num_nodes_2d
+       ncount_point = ncount_point + 1
+       write(ifile,'(''Point('',i8,'') = {'',f12.7,'','',f12.7,'','',f12.7,'',lc};'')') &
+            ncount_point,node_xyz_2d(1,1,1:3,np)
+    enddo
+    
+    element_spline = 0
+    num_crux_lines = 0
+    ne = 1
+    
+    do while (ne.le.num_elems_2d)
+       do k = 1,4
+          if(k.eq.1)then
+             ni1 = 1
+             ni2 = 2
+             nk = 2 ! calculate the location in the Xi+1 direction
+             if(elem_cnct_2d(-2,0,ne).eq.0.or.ne.lt.elem_cnct_2d(-2,1,ne))then
+                make = .true.
+             else
+                make = .false.
+                if(elem_cnct_2d(-2,1,elem_cnct_2d(-2,1,ne)).eq.ne)then
+                   ! the elements meet at Xi2=0 for both elements
+                   line_num(k) = -element_spline(1,elem_cnct_2d(-2,1,ne))
+                else
+                   line_num(k) = element_spline(2,elem_cnct_2d(-2,1,ne))
+                endif
+             endif
+          else if(k.eq.2)then
+             ni1 = 3
+             ni2 = 4
+             nk = 2 ! calculate the location in the Xi+1 direction
+             make = .true.
+          else if(k.eq.3)then
+             ni1 = 1
+             ni2 = 3
+             nk = 3 ! calculate the location in the Xi+2 direction
+             if(elem_cnct_2d(-1,0,ne).eq.0.or.ne.lt.elem_cnct_2d(-1,1,ne))then
+                make = .true.
+             else
+                make = .false.
+                if(elem_cnct_2d(-2,1,elem_cnct_2d(-1,1,ne)).eq.ne)then
+                   ! the elements change Xi direction where they meet
+                   line_num(k) = element_spline(1,elem_cnct_2d(-1,1,ne))
+                else
+                   line_num(k) = element_spline(4,elem_cnct_2d(-1,1,ne))
+                endif
+             endif
+          else if(k.eq.4)then
+             ni1 = 2
+             ni2 = 4
+             nk = 3 ! calculate the location in the Xi+2 direction
+             if(elem_cnct_2d(1,0,ne).eq.0.or.ne.lt.elem_cnct_2d(1,1,ne))then
+                make = .true.
+             else
+                make = .false.
+                if(elem_cnct_2d(-2,1,elem_cnct_2d(1,1,ne)).eq.ne)then
+                   ! the elements change Xi direction where they meet
+                   line_num(k) = -element_spline(1,elem_cnct_2d(1,1,ne))
+                else
+                   line_num(k) = element_spline(3,elem_cnct_2d(1,1,ne))
+                endif
+             endif
+          endif
+
+          if(make)then
+             np1 = elem_nodes_2d(ni1,ne)
+             np2 = elem_nodes_2d(ni2,ne)
+             nv1 = elem_versn_2d(ni1,ne)
+             nv2 = elem_versn_2d(ni2,ne)
+             
+             do i = 1,3
+                phi_1_0 = 1.0_dp - 3.0_dp * xidivn(i)**2 + 2.0_dp * xidivn(i)**3
+                phi_1_1 = xidivn(i) * (xidivn(i) - 1.0_dp)**2
+                phi_2_0 = xidivn(i)**2 * (3.0_dp - 2.0_dp * xidivn(i))
+                phi_2_1 = xidivn(i)**2 * (xidivn(i) - 1.0_dp)
+                do j = 1,3
+                   point_xyz(j) = phi_1_0 * node_xyz_2d(1,1,j,np1) + &
+                        phi_2_0 * node_xyz_2d(1,1,j,np2) &
+                        + phi_1_1 * node_xyz_2d(nk,nv1,j,np1) * scale_factors_2d((ni1-1)*4+nk,ne) &
+                        + phi_2_1 * node_xyz_2d(nk,nv2,j,np2) * scale_factors_2d((ni2-1)*4+nk,ne)
+                enddo
+                ncount_point = ncount_point + 1
+                write(ifile,'(''Point('',i8,'') = {'',f12.7,'','',f12.7,'','',f12.7,'',lc};'')') &
+                     ncount_point, point_xyz(1:3)
+             enddo ! i
+             ncount_spline = ncount_spline + 1
+             write(ifile,'(''Spline('',I8,'') = {'',I8,'','',I8,'','' &
+                  &,I8,'','',I8,'','',I8,''};'')') ncount_spline, np1, &
+                  ncount_point-2, ncount_point-1, ncount_point, np2
+             element_spline(k,ne) = ncount_spline
+             line_num(k) = ncount_spline
+          endif
+       enddo ! k
+       
+       ncount_loop = ncount_loop + 1
+       write(ifile,'(''Line Loop('',i8,'') = {'',i8,'','',i8,'','',i8,'','',i8,''};'')') &
+            ncount_loop, line_num(1),line_num(4),-line_num(2),-line_num(3)
+       ncount_loop = ncount_loop + 1
+       write(ifile,'(''Surface('',I8,'') = {'',I8,''};'')') ncount_loop, ncount_loop - 1
+       elem_surfaces(1,ne) = ncount_loop
+       
+       ne = ne + 1
+       
+    enddo ! while (ne.le.num_elems_2d)
+
+    call enter_exit(sub_name,2)
+
+  end subroutine write_surface_geo
+  
+!!!#############################################################################
+
+  subroutine write_surface_geo0(element_spline,elem_surfaces,ifile,ncount_point, &
        ncount_loop,ncount_spline,np_offset)
     
     integer :: element_spline(:,:),elem_surfaces(:,:),ifile,ncount_point, &
@@ -4835,7 +5666,7 @@ contains
     
     call enter_exit(sub_name,2)
 
-  end subroutine write_surface_geo
+  end subroutine write_surface_geo0
   
 !!!#############################################################################
 
@@ -4852,6 +5683,86 @@ contains
     integer,allocatable :: centre_points(:),ncap_entry(:),ncap_exit(:), &
          ncentre(:),ninner(:),nphys_vol(:),node_spoke(:,:),nwall(:)
     real(dp) :: point_xyz_centre(3), xidivn(3)
+    logical :: at_bifurcation
+    character(len=60) :: sub_name
+    
+    ! --------------------------------------------------------------------------
+    
+    sub_name = 'write_3d_geo'
+    call enter_exit(sub_name,1)
+        
+    ne = 1
+    
+    do while (ne.le.num_elems_2d)
+!!!....the following works on four adjacent surface elements
+       if(elem_cnct_2d(-2,0,ne).eq.0)then ! at the tree entry
+          ncount_loop = ncount_loop + 1
+          write(ifile,'(''Line Loop('',i8,'') = {'',i8,'','',i8,'','' &
+               &,i8,'','',i8,''};'')') ncount_loop, element_spline(1,ne:ne+3)
+          ncount_loop = ncount_loop + 1
+          write(ifile,'(''Surface('',i8,'') = {'',i8,''};'')') &
+               ncount_loop, ncount_loop - 1
+          elem_surfaces(2,ne) = ncount_loop
+       elseif(elem_cnct_2d(2,0,ne).eq.0)then ! at the tree exit
+          ncount_loop = ncount_loop + 1
+          write(ifile,'(''Line Loop('',i8,'') = {'',i8,'','',i8,'','' &
+               &,i8,'','',i8,''};'')') ncount_loop, element_spline(2,ne:ne+3)
+          ncount_loop = ncount_loop + 1
+          write(ifile,'(''Surface('',i8,'') = {'',i8,''};'')') &
+               ncount_loop, ncount_loop - 1
+          elem_surfaces(2,ne) = ncount_loop
+       endif
+       
+       ne = ne + 4
+
+    enddo ! while (ne.le.num_elems_2d)
+
+    !write(ifile,'(/''Surface Loop(1) = {'')', advance = "no")
+    !ne = 1
+    !do while (ne.le.num_elems_2d)
+     !  do k = 0,3
+     !     write(ifile,'(i6,'','')', advance = "no") elem_surfaces(1,ne+k)
+     !  enddo
+     !  if(elem_cnct_2d(-2,0,ne).eq.0)then ! at the tree entry
+     !     write(ifile,'(i6,'','')', advance = "no") elem_surfaces(2,ne)
+     !  elseif(elem_cnct_2d(2,0,ne).eq.0)then ! at the tree exit
+     !     write(ifile,'(i6,'','')', advance = "no") elem_surfaces(2,ne)
+     !  endif
+     !  
+     !  ne = ne + 4
+
+    !enddo ! while (ne.le.num_elems_2d)
+    !write(ifile,'(''};'')')
+    
+    !write(ifile,'(/''Volume(2) = {1};'')')
+
+    write(ifile,'(/)')
+    write(ifile,'(''Mesh.Algorithm = 3;'')') ! Anisotropic
+    write(ifile,'(''Mesh.Smoothing = 4;'')')
+    write(ifile,'(''Mesh.Algorithm3D = 2;'')') ! Netgen
+
+    close(ifile)
+
+    call enter_exit(sub_name,2)
+    
+  end subroutine write_3d_geo
+
+!!!#############################################################################
+
+  subroutine write_3d_geo0(element_spline,elem_surfaces,ifile,ncount_point, &
+    ncount_loop,ncount_spline)
+
+    integer,intent(in) :: ifile
+    integer :: element_spline(:,:),elem_surfaces(:,:),ncount_point,ncount_loop, &
+         ncount_spline
+    ! Local variables
+    integer :: i,j,k,line1,line2,line3,line4,ncount_cap_entry=0,ncount_cap_exit=0, &
+         ncount_inner=0,ncount_centre=0,ncount_phys_vol=0,ncount_spline_0, &
+         ncount_surface=0,ncount_volume=0,ncount_wall=0,ne,ne_next,np_highest,np1,np2
+    integer,allocatable :: centre_points(:),ncap_entry(:),ncap_exit(:), &
+         ncentre(:),ninner(:),nphys_vol(:),node_spoke(:,:),nwall(:)
+    real(dp) :: point_xyz_centre(3), xidivn(3)
+    logical :: at_bifurcation
     character(len=60) :: sub_name
     
     ! --------------------------------------------------------------------------
@@ -4932,27 +5843,25 @@ contains
        point_xyz_centre = 0.0_dp
        np_highest = elem_nodes_2d(3,ne)
        ncount_spline_0 = ncount_spline + 1
+
+       at_bifurcation = .false.
        do k = 0,3
           np1 = elem_nodes_2d(3,ne+k)
           np2 = elem_nodes_2d(4,ne+k)
-          if(node_versn_2d(np1).ge.2.or.node_versn_2d(np2).ge.2)then  ! only for when there is a crux node
-             if(np1.gt.np_highest) np_highest = np1
-             forall (j = 1:3) point_xyz_centre(j) = point_xyz_centre(j) &
-                  + 0.2_dp * node_xyz_2d(1,1,j,np1)
-          else
-             forall (j = 1:3) point_xyz_centre(j) = point_xyz_centre(j) &
-                  + 0.25_dp * node_xyz_2d(1,1,j,np1)
-          endif
-       enddo ! k
-
-       ncount_point = ncount_point + 1
-       if(node_versn_2d(np1).ge.2.or.node_versn_2d(np2).ge.2)then  ! only for when there is a crux node
-          np_highest = elem_nodes_2d(2,elem_cnct_2d(1,1,elem_cnct_2d(2,1,ne)))
           forall (j = 1:3) point_xyz_centre(j) = point_xyz_centre(j) &
-               + 0.2_dp * node_xyz_2d(1,1,j,np_highest)
+               + node_xyz_2d(1,1,j,np1)
+          if(node_versn_2d(np1).ge.6.or.node_versn_2d(np2).ge.6)  at_bifurcation = .true.
+          if(np1.gt.np_highest) np_highest = np1
+       enddo ! k
+       ncount_point = ncount_point + 1
+       if(at_bifurcation)then
+          np_highest = np_highest + 1
           centre_points(np_highest) = ncount_point   ! record the centre point number for this 'ring'
+          forall (j = 1:3) point_xyz_centre(j) = (point_xyz_centre(j) + node_xyz_2d(1,1,j,np_highest)) * 0.2_dp
+       else
+          forall (j = 1:3) point_xyz_centre(j) = point_xyz_centre(j) * 0.25_dp
        endif
-
+       
        write(ifile,'(''Point('',i8,'') = {'',f12.7,'','',f12.7,'','' &
             &,f12.7,'',lc};'')') ncount_point,point_xyz_centre(1:3)
 
@@ -4965,26 +5874,28 @@ contains
           node_spoke(1,np1) = ncount_spline
        enddo  ! k
 
-       if(node_versn_2d(np1).ge.2.or.node_versn_2d(np2).ge.2)then  ! only for when there is a crux node
-          np_highest = elem_nodes_2d(2,elem_cnct_2d(1,1,elem_cnct_2d(2,1,ne)))
+! not sure whether the following is needed. doesn't seem to be used       
+!       if(at_bifurcation)then
+!       !if(node_versn_2d(np1).ge.2.or.node_versn_2d(np2).ge.2)then  ! only for when there is a crux node
+!          !np_highest = elem_nodes_2d(2,elem_cnct_2d(1,1,elem_cnct_2d(2,1,ne)))
           
-          if(elems_at_node_2d(np_highest,0).eq.6)then
-             do i = 1,elems_at_node_2d(np_highest,0)
-                ne_next = elems_at_node_2d(np_highest,i)
-                np1 = elem_nodes_2d(1,ne_next)
-                if(np1.eq.np_highest) np1 = &
-                     elem_nodes_2d(2,elems_at_node_2d(np_highest,i))
-                if(node_spoke(1,np1).eq.0)then
-                   ! make a spoke from the centre to this node
-                   ncount_spline = ncount_spline + 1
-                   write(ifile,'(''Line('',i8,'') = {'',i8,'','',i8,''};'')') &
-                        ncount_spline,ncount_point,np1
-                   node_spoke(1,np1) = ncount_spline
-                   elem_surfaces(1,elem_cnct_2d(-2,1,ne_next)) = ncount_loop
-                endif
-             enddo
-          endif
-       endif
+!          if(elems_at_node_2d(np_highest,0).eq.6)then
+!             do i = 1,elems_at_node_2d(np_highest,0)
+!                ne_next = elems_at_node_2d(np_highest,i)
+!                np1 = elem_nodes_2d(1,ne_next)
+!                if(np1.eq.np_highest) np1 = &
+!                     elem_nodes_2d(2,elems_at_node_2d(np_highest,i))
+!                if(node_spoke(1,np1).eq.0)then
+!                   ! make a spoke from the centre to this node
+!                   ncount_spline = ncount_spline + 1
+!                   write(ifile,'(''Line('',i8,'') = {'',i8,'','',i8,''};'')') &
+!                        ncount_spline,ncount_point,np1
+!                   node_spoke(1,np1) = ncount_spline
+!                   elem_surfaces(1,elem_cnct_2d(-2,1,ne_next)) = ncount_loop
+!                endif
+!             enddo
+!          endif
+!       endif
 
 !!!....make surface elements at the Xi2=1 end
        do k = 0,3
@@ -5009,13 +5920,13 @@ contains
           ninner(ncount_inner) = ncount_loop
        enddo  ! k
              
-       if(node_versn_2d(np1).ge.2.or.node_versn_2d(np2).ge.2)then  ! only for crux node
+       if(at_bifurcation)then
           ncount_spline = ncount_spline + 1
           write(ifile,'(''Line('',i8,'') = {'',i8,'','',i8,''};'')') &
                ncount_spline,ncount_point,np_highest
           node_spoke(1,np_highest) = ncount_spline
 
-          ne_next = elem_cnct_2d(1,1,elem_cnct_2d(2,1,ne))
+          ne_next = elems_at_node_2d(np_highest,1)
           line1 = node_spoke(1,elem_nodes_2d(1,ne_next))
           line2 = element_spline(1,ne_next)
           line3 = -node_spoke(1,elem_nodes_2d(2,ne_next))
@@ -5030,10 +5941,9 @@ contains
           ninner(ncount_inner) = ncount_loop
 
           elem_surfaces(1,ne_next) = ncount_loop
-          ne_next = elem_cnct_2d(-2,1,ne_next)
-          elem_surfaces(1,ne_next) = ncount_loop
+          elem_surfaces(1,elem_cnct_2d(-2,1,ne_next)) = ncount_loop
 
-          ne_next = elem_cnct_2d(-1,1,elem_cnct_2d(2,1,elem_cnct_2d(-1,1,ne)))
+          ne_next = elems_at_node_2d(np_highest,2)
           line1 = node_spoke(1,elem_nodes_2d(1,ne_next))
           line2 = element_spline(1,ne_next)
           line3 = -node_spoke(1,elem_nodes_2d(2,ne_next))
@@ -5101,6 +6011,8 @@ contains
        ncount_spline = ncount_spline + 1
        write(ifile,'(''Line('',i8,'') = {'',i8,'','',i8,''};'')') ncount_spline, &
             centre_points(elem_nodes_2d(1,ne)),ncount_point
+       if(ncount_spline.eq.858) write(*,*) 'here4', &
+            centre_points(elem_nodes_2d(1,ne)),ncount_point,elem_nodes_2d(1,ne),ne
 
 !!! Make surfaces from the centreline
        do k = 0,3
@@ -5197,7 +6109,7 @@ contains
 
     call enter_exit(sub_name,2)
     
-  end subroutine write_3d_geo
+  end subroutine write_3d_geo0
 
 !!!#############################################################################
   

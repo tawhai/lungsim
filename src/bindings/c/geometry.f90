@@ -2,7 +2,7 @@ module geometry_c
   use arrays
   use diagnostics
   use indices
-  !use mesh_functions
+  use mesh_utilities
   !use precision ! sets dp for precision
   !use math_constants !pi  
 
@@ -464,18 +464,6 @@ contains
 
   end subroutine volume_of_mesh_c
 
-
-  function get_local_node_f_c(ndimension,np_global) result(get_local_node) bind(C, name="get_local_node_f_c")
-    use arrays, only: dp
-    use geometry, only: get_local_node_f
-    implicit none
-    
-    integer :: ndimension,np_global
-    integer :: get_local_node
-    
-    get_local_node=get_local_node_f(ndimension,np_global)
-
-  end function get_local_node_f_c
 
 !
 !###################################################################################

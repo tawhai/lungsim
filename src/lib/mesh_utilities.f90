@@ -14,16 +14,38 @@ module mesh_utilities
 
   private
 
-  public  area_between_three_points,area_between_two_vectors,angle_btwn_points, &
-       angle_btwn_vectors,bifurcation_element,calc_arclengths,calc_branch_direction, &
-       calc_scale_factors_2d,check_colinear_points,cross_product,&
-       direction_point_to_point,distance_between_points, &
-       distance_from_plane_to_point,hermite,linear,make_plane_from_3points, &
-       mesh_a_x_eq_b,point_internal_to_surface,scalar_product_3, &
-       scalar_triple_product,scale_mesh,set_linear_derivatives,stem_element,&
-       terminal_element, &
-       unit_norm_to_plane_two_vectors,unit_norm_to_three_points,unit_vector, &
-       vector_length,volume_internal_to_surface,which_child
+  public  area_between_three_points
+  public  area_between_two_vectors
+  public  angle_btwn_points
+  public  angle_btwn_vectors
+  public  bifurcation_element
+  public  calc_arclengths
+  public  calc_branch_direction
+  public  calc_scale_factors_2d
+  public  check_colinear_points
+  public  cross_product
+  public  direction_point_to_point
+  public  distance_between_points
+  public  distance_from_plane_to_point
+  public  get_local_elem
+  public  get_local_node_f
+  public  hermite
+  public  linear
+  public  make_plane_from_3points
+  public  mesh_a_x_eq_b
+  public  point_internal_to_surface
+  public  scalar_product_3
+  public  scalar_triple_product
+  public  scale_mesh
+  public  set_linear_derivatives
+  public  stem_element
+  public  terminal_element
+  public  unit_norm_to_plane_two_vectors
+  public  unit_norm_to_three_points
+  public  unit_vector
+  public  vector_length
+  public  volume_internal_to_surface
+  public  which_child
 
 contains
 
@@ -313,17 +335,60 @@ contains
   subroutine set_linear_derivatives
 
     ! Local variables
-    integer :: nk,nl,nline,np1,np2,nv1
+    integer :: ne,nk,nl,nline,np1,np2,nv1,nv2
 
-    do nline = 1,num_lines_2d                ! loop over all lines
-       nl = lines_2d(nline)                  ! the line number 
-       nk = nodes_in_line(1,0,nl)+1          ! the derivative = xi direction+1
-       np1 = nodes_in_line(2,1,nl)           ! the first node
-       nv1 = line_versn_2d(1,1,nl)           ! the version of the node for this line
-       np2 = nodes_in_line(3,1,nl)           ! the second node
-       node_xyz_2d(nk,nv1,:,np1) = node_xyz_2d(1,1,:,np2) &
-            - node_xyz_2d(1,1,:,np2)
-    enddo !nline
+!    do nline = 1,num_lines_2d                ! loop over all lines
+!       nl = lines_2d(nline)                  ! the line number 
+!       nk = nodes_in_line(1,0,nl)+1          ! the derivative = xi direction+1
+!       np1 = nodes_in_line(2,1,nl)           ! the first node
+!       nv1 = line_versn_2d(1,1,nl)           ! the version of the node for this line
+!       np2 = nodes_in_line(3,1,nl)           ! the second node
+!       node_xyz_2d(nk,nv1,:,np1) = node_xyz_2d(1,1,:,np2) &
+!            - node_xyz_2d(1,1,:,np1)
+!    enddo !nline
+    do ne = 1,num_elems_2d
+       np1 = elem_nodes_2d(1,ne)
+       nv1 = elem_versn_2d(1,ne)
+       np2 = elem_nodes_2d(2,ne)
+       nv2 = elem_versn_2d(2,ne)
+       node_xyz_2d(2,nv1,:,np1) = node_xyz_2d(1,1,:,np2) &
+            - node_xyz_2d(1,1,:,np1)
+
+!       write(*,'(''deriv1: ne='',i4,'' np1(nv1)='',i4,''('',i1,'') np2(nv2)='',i4,''('',i1,'')  length='',f5.1)') &
+!            elems_2d(ne),nodes_2d(np1),nv1,nodes_2d(np2),nv2, &
+!            node_xyz_2d(1,1,1,np2) - node_xyz_2d(1,1,1,np1)
+
+       np2 = elem_nodes_2d(3,ne)
+       nv2 = elem_versn_2d(3,ne)
+       node_xyz_2d(3,nv1,:,np1) = node_xyz_2d(1,1,:,np2) &
+            - node_xyz_2d(1,1,:,np1)
+
+!       write(*,'(''deriv2: ne='',i4,'' np1(nv1)='',i4,''('',i1,'')  np2(nv2)='',i4,''('',i1,'')  length='',f5.1)') &
+!            elems_2d(ne),nodes_2d(np1),nv1,nodes_2d(np2),nv2, &
+!            node_xyz_2d(1,1,1,np2) - node_xyz_2d(1,1,1,np1)
+
+       np1 = elem_nodes_2d(2,ne)
+       nv1 = elem_versn_2d(2,ne)
+       np2 = elem_nodes_2d(4,ne)
+       nv2 = elem_versn_2d(4,ne)
+       node_xyz_2d(3,nv1,:,np1) = node_xyz_2d(1,1,:,np2) &
+            - node_xyz_2d(1,1,:,np1)
+
+!       write(*,'(''deriv2: ne='',i4,'' np1(nv1)='',i4,''('',i1,'')  np2(nv2)='',i4,''('',i1,'')  length='',f5.1)') &
+!            elems_2d(ne),nodes_2d(np1),nv1,nodes_2d(np2),nv2, &
+!            node_xyz_2d(1,1,1,np2) - node_xyz_2d(1,1,1,np1)
+
+       np1 = elem_nodes_2d(3,ne)
+       nv1 = elem_versn_2d(3,ne)
+       node_xyz_2d(2,nv1,:,np1) = node_xyz_2d(1,1,:,np2) &
+            - node_xyz_2d(1,1,:,np1)
+
+!       write(*,'(''deriv1: ne='',i4,'' np1(nv1)='',i4,''('',i1,'')  np2(nv2)='',i4,''('',i1,'')  length='',f5.1)') &
+!            elems_2d(ne),nodes_2d(np1),nv1,nodes_2d(np2),nv2, &
+!            node_xyz_2d(1,1,1,np2) - node_xyz_2d(1,1,1,np1)
+
+       
+    enddo !ne
     
   end subroutine set_linear_derivatives
   
@@ -365,6 +430,72 @@ contains
   end function area_between_three_points
   
 
+!!!#############################################################################
+
+  function get_local_elem(ne_global)
+
+!!! dummy arguments
+    integer,intent(in) :: ne_global
+!!! local variables
+    integer :: ne
+    integer :: get_local_elem
+
+    ! --------------------------------------------------------------------------
+
+    do ne=1,num_elems_2d
+       if(ne_global.eq.elems_2d(ne)) get_local_elem = ne
+    enddo
+
+  end function get_local_elem
+
+!!!#############################################################################
+  
+  function get_local_node_f(ndimension,np_global) result(get_local_node)
+    
+    integer,intent(in) :: ndimension,np_global
+    ! Local variables
+    integer :: np
+    integer :: get_local_node
+    logical :: found
+
+    ! --------------------------------------------------------------------------
+
+    found = .false.
+    np = 0
+    
+    select case (ndimension)
+       
+    case(1)
+       do while (.not.found)
+          np=np+1
+          if(np.gt.num_nodes) then
+             found = .true.
+             write(*,'('' Warning: local node not found for global node'',I6)') np_global
+          endif
+          if(np_global.eq.nodes(np))then
+             get_local_node = np
+             found = .true.
+          endif
+       enddo
+       
+    case(2)
+       do while (.not.found)
+          np=np+1
+          if(np.gt.num_nodes_2d) then
+             found = .true.
+             write(*,'('' Warning: local node not found for global node'',I6)') np_global
+             read(*,*)
+          endif
+          if(np_global.eq.nodes_2d(np))then
+             get_local_node = np
+             found = .true.
+          endif
+       enddo
+       
+    end select
+    
+  end function get_local_node_f
+  
 !!! ##########################################################################      
 
   function hermite(i,j,k,xi)

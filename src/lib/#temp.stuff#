@@ -1,0 +1,116 @@
+    
+    ! make new nodes around the parent ring
+    num_nodes_2d = num_nodes_2d + 1
+    np_new = num_nodes_2d
+    np1 = elem_nodes_2d(2,ne_closest)
+    np2 = elem_nodes_2d(4,ne_closest)
+    forall (j=1:4) node_xyz_2d(j,1,:,np_new) = 0.5_dp*(node_xyz_2d(j,1,:,np1) &
+         + node_xyz_2d(j,1,:,np2))
+    nodes_2d(np_new) = np_new ! global element number stored in local index
+    
+    ne_next = elem_cnct_2d(-1,1,ne_closest)
+    num_nodes_2d = num_nodes_2d + 1
+    np_new = num_nodes_2d
+    np1 = elem_nodes_2d(1,ne_next)
+    np2 = elem_nodes_2d(3,ne_next)
+    forall (j=1:4) node_xyz_2d(j,1,:,np_new) = 0.5_dp*(node_xyz_2d(j,1,:,np1) &
+         + node_xyz_2d(j,1,:,np2))
+    nodes_2d(np_new) = np_new ! global element number stored in local index
+    
+    ne_next = elem_cnct_2d(2,1,ne_closest)
+    num_nodes_2d = num_nodes_2d + 1
+    np_new = num_nodes_2d
+    np1 = elem_nodes_2d(2,ne_next)
+    np2 = elem_nodes_2d(4,ne_next)
+    forall (j=1:4) node_xyz_2d(j,1,:,np_new) = 0.5_dp*(node_xyz_2d(j,1,:,np1) &
+         + node_xyz_2d(j,1,:,np2))
+    nodes_2d(np_new) = np_new ! global element number stored in local index
+    
+    ne_next = elem_cnct_2d(2,1,elem_cnct_2d(-1,1,ne_closest))
+    num_nodes_2d = num_nodes_2d + 1
+    np_new = num_nodes_2d
+    np1 = elem_nodes_2d(2,ne_next)
+    np2 = elem_nodes_2d(4,ne_next)
+    forall (j=1:4) node_xyz_2d(j,1,:,np_new) = 0.5_dp*(node_xyz_2d(j,1,:,np1) &
+         + node_xyz_2d(j,1,:,np2))
+    nodes_2d(np_new) = np_new ! global element number stored in local index
+    
+
+
+
+!!! FIND CLOSEST NODE ON MINOR RING TO THE 'CLOSEST' PARENT ELEMENT, AND SET UP
+!!! VERSIONS OF DERIVATIVES FOR THE MINOR RING NODES
+    u(:) = node_xyz_2d(1,1,:,elem_nodes_2d(4,ne_closest_parent)) 
+    dist_closest = 1.0e6_dp
+    do n_elem = 1,4
+       ne_ring = elem_ring(n_elem,ne) ! minor branch elements
+       np_ring = elem_nodes_2d(2,ne_ring)
+       ! set up the versions of derivatives, to be used later
+       node_versn_2d(np_ring) = 3 ! the number of versions
+       forall (j=2:3) node_xyz_2d(1,j,:,np_ring) = node_xyz_2d(1,1,:,np_ring)
+       v(:) = node_xyz_2d(1,1,:,np_ring)
+       distance = distance_between_points(u,v)
+       if(distance.lt.dist_closest)then
+          dist_closest = distance
+          ne_closest = ne_ring
+          np_closest = np_ring
+       endif
+    enddo
+
+    node_xyz_2d(2,2,:,np_closest) = node_xyz_2d(2,2,:,np_closest_parent) ! derivative on this one not great
+    node_xyz_2d(3,2,:,np_closest) = node_xyz_2d(2,1,:,np_closest)*0.5_dp
+    node_xyz_2d(2,2,:,elem_nodes_2d(1,ne_closest)) = node_xyz_2d(2,2,:,np_closest_parent)
+    node_xyz_2d(3,2,:,elem_nodes_2d(1,ne_closest)) = node_xyz_2d(3,2,:,np_closest_parent)
+    node_xyz_2d(2,3,:,elem_nodes_2d(1,ne_closest)) = node_xyz_2d(2,2,:,np_closest_parent)
+    node_xyz_2d(3,3,:,elem_nodes_2d(1,ne_closest)) = node_xyz_2d(2,1,:,elem_nodes_2d(1,ne_closest))*0.5_dp
+
+
+!!! MAKE NEW ELEMENTS AROUND PARENT
+    if(ne_closest_parent.eq.39)then
+       num_elems_2d = num_elems_2d + 1
+       ne_new = num_elems_2d
+       elems_2d(ne_new) = ne_new
+       elem_nodes_2d(1,ne_new) = elem_nodes_2d(1,ne_closest)
+       elem_nodes_2d(2,ne_new) = num_nodes_2d - 3
+       elem_nodes_2d(3,ne_new) = np_closest
+       elem_nodes_2d(4,ne_new) = elem_nodes_2d(4,ne_closest_parent)
+       elem_versn_2d(1,ne_new) = 3
+       elem_versn_2d(3,ne_new) = 2
+
+       !num_elems_2d = num_elems_2d + 1
+       !ne_new = num_elems_2d
+       !elems_2d(ne_new) = ne_new
+       !elem_nodes_2d(1,ne_new) = num_nodes_2d - 2
+       !elem_nodes_2d(2,ne_new) = elem_nodes_2d(1,ne_closest)
+       !elem_nodes_2d(3,ne_new) = elem_nodes_2d(3,elem_cnct_2d(-1,1,ne_closest_parent))
+       !elem_nodes_2d(4,ne_new) = elem_nodes_2d(1,elem_cnct_2d(-1,1,ne_closest))
+       !elem_versn_2d(2,ne_new) = 3
+       !elem_versn_2d(4,ne_new) = 1
+       !write(*,*) 'new element',elem_nodes_2d(1:4,ne_new)
+    
+!    num_elems_2d = num_elems_2d + 1
+!    ne_new = num_elems_2d
+!    elems_2d(ne_new) = ne_new
+!    elem_nodes_2d(1,ne_new) = 
+!    elem_nodes_2d(2,ne_new) = 
+!    elem_nodes_2d(3,ne_new) = 
+!    elem_nodes_2d(4,ne_new) = 
+!    elem_versn_2d(2,ne_new) = 
+!    elem_versn_2d(4,ne_new) = 
+    
+!    num_elems_2d = num_elems_2d + 1
+!    ne_new = num_elems_2d
+!    elems_2d(ne_new) = ne_new
+!    elem_nodes_2d(1,ne_new) = 
+!    elem_nodes_2d(2,ne_new) = 
+!    elem_nodes_2d(3,ne_new) = 
+!    elem_nodes_2d(4,ne_new) = 
+!    elem_versn_2d(2,ne_new) = 
+!    elem_versn_2d(4,ne_new) = 
+    
+
+       ! replace 3rd and 4th nodes of original elements
+       elem_nodes_2d(3,ne_closest_parent) = elem_nodes_2d(1,ne_closest)
+       elem_nodes_2d(4,ne_closest_parent) = num_nodes_2d - 2
+       elem_versn_2d(1,ne_closest_parent) = 2
+    endif
