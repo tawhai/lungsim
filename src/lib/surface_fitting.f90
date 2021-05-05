@@ -91,6 +91,7 @@ contains
 !!! find the closest surface to each data point, and calculate the Xi
 !!! coordinates of the data point to the surface
     write(*,'('' Calculating normal projections: slow first time '')')
+    write(*,*) num_data, 'total data points'
     call define_xi_closest(data_elem,data_on_elem,elem_list,ndata_on_elem,data_xi,first)
     first = .false.
     

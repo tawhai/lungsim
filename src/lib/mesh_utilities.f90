@@ -8,7 +8,9 @@ module mesh_utilities
 
 
   use arrays
+  use diagnostics
   use other_consts
+  use precision
 
   implicit none
 
@@ -23,23 +25,32 @@ module mesh_utilities
   public  calc_branch_direction
   public  calc_scale_factors_2d
   public  check_colinear_points
+  public  coord_at_xi
   public  cross_product
   public  direction_point_to_point
   public  distance_between_points
   public  distance_from_plane_to_point
+  public  element_connectivity_1d
+  public  element_connectivity_2d
+  public  evaluate_ordering
   public  get_local_elem
+  public  get_local_elem_2d
   public  get_local_node_f
+  public  group_elem_parent_term
   public  hermite
+  public  inlist
   public  linear
   public  make_plane_from_3points
   public  mesh_a_x_eq_b
   public  point_internal_to_surface
+  public  reallocate_node_elem_arrays
   public  scalar_product_3
   public  scalar_triple_product
   public  scale_mesh
   public  set_linear_derivatives
   public  stem_element
   public  terminal_element
+  public  triangles_from_surface
   public  unit_norm_to_plane_two_vectors
   public  unit_norm_to_three_points
   public  unit_vector
@@ -265,6 +276,262 @@ contains
     
   end function distance_from_plane_to_point
   
+!!!#############################################################################
+  
+  subroutine element_connectivity_1d()
+    !*element_connectivity_1d:*  Calculates element connectivity in 1D and
+    ! stores in array elem_cnct
+    !DEC$ ATTRIBUTES DLLEXPORT,ALIAS:"SO_ELEMENT_CONNECTIVITY_1D" :: ELEMENT_CONNECTIVITY_1D
+
+    !     Local Variables
+    integer :: ne,ne2,nn,noelem,np,np2,np1
+    integer,parameter :: NNT=2
+    character(len=60) :: sub_name
+
+    ! --------------------------------------------------------------------------
+    
+    sub_name = 'element_connectivity_1d'
+    call enter_exit(sub_name,1)
+    
+    elem_cnct = 0 !initialise
+
+    ! calculate elems_at_node array: stores the elements that nodes are in
+    elems_at_node(1:num_nodes,0) = 0 !initialise number of adjacent elements
+    
+    do ne=1,num_elems
+       do nn=1,2
+          np=elem_nodes(nn,ne)
+          elems_at_node(np,0)=elems_at_node(np,0)+1
+          elems_at_node(np,elems_at_node(np,0))=ne ! local element that np is in
+       enddo !nn
+    enddo !noelem
+    
+    ! calculate elem_cnct array: stores the connectivity of all elements
+    
+    elem_cnct=0 !initialise all elem_cnct
+    
+    do ne=1,num_elems
+       !     ne_global=elems(noelem)
+       if(NNT == 2) THEN !1d
+          np1=elem_nodes(1,ne) !first local node
+          np2=elem_nodes(2,ne) !second local node
+          do noelem=1,elems_at_node(np2,0)
+             ne2=elems_at_node(np2,noelem)
+             if(ne2 /= ne)THEN
+                elem_cnct(-1,0,ne2)=elem_cnct(-1,0,ne2)+1
+                elem_cnct(-1,elem_cnct(-1,0,ne2),ne2)=ne !previous element
+                elem_cnct(1,0,ne)=elem_cnct(1,0,ne)+1
+                elem_cnct(1,elem_cnct(1,0,ne),ne)=ne2
+             endif !ne2
+          enddo !noelem2
+       endif
+    enddo
+    
+    call enter_exit(sub_name,2)
+
+  end subroutine element_connectivity_1d
+
+!!!#############################################################################
+  
+  subroutine element_connectivity_2d
+    !*element_connectivity_2d:*  Calculates element connectivity in 2D and
+    ! stores in array elem_cnct_2d
+
+    ! Local variables
+    integer :: ne,ne2,nn,np,noelem2,np_list(4),np_list_2(4)
+    integer,parameter :: num_elem_nodes = 4
+    character(len=60) :: sub_name
+
+    ! --------------------------------------------------------------------------
+    
+    sub_name = 'element_connectivity_2d'
+    call enter_exit(sub_name,1)
+    
+    if(allocated(elems_at_node_2d))then
+       deallocate(elem_cnct_2d)
+       deallocate(elems_at_node_2d)
+    endif
+    allocate(elem_cnct_2d(-2:2,0:10,num_elems_2d))
+    allocate(elems_at_node_2d(num_nodes_2d,0:10))
+    
+!!! calculate elems_at_node_2d array: stores the elements that nodes are in
+    
+    elems_at_node_2d = 0 !initialise all
+    do ne = 1,num_elems_2d
+       do nn = 1,num_elem_nodes
+          np = elem_nodes_2d(nn,ne)
+          elems_at_node_2d(np,0) = elems_at_node_2d(np,0)+1
+          elems_at_node_2d(np,elems_at_node_2d(np,0)) = ne !element that np is in
+       enddo !nn
+    enddo !noelem
+!!! calculate elem_cnct_2d array: stores the connectivity of all elements
+    
+    elem_cnct_2d = 0 !initialise all elem_cnct_2d
+    
+    do ne = 1,num_elems_2d ! for each of the 2d elements
+       np_list(1:4) = elem_nodes_2d(1:4,ne) ! the list of nodes in the element (including repeated)
+!!! check the elements attached to the 1st node
+       do noelem2 = 1,elems_at_node_2d(np_list(1),0) ! for each element attached to the 1st node
+          ne2 = elems_at_node_2d(np_list(1),noelem2) ! attached element number
+          if(ne2.ne.ne)then
+             np_list_2(1:4) = elem_nodes_2d(1:4,ne2) !list of nodes in attached element
+             if(np_list(2).ne.np_list(1))then ! only if first two nodes are not repeated
+                if(inlist(np_list(2),np_list_2))then
+                   elem_cnct_2d(-2,0,ne) = elem_cnct_2d(-2,0,ne)+1
+                   elem_cnct_2d(-2,elem_cnct_2d(-2,0,ne),ne) = ne2 
+                endif
+             endif
+             if(np_list(3).ne.np_list(1))then ! only if the two nodes are not repeated
+                if(inlist(np_list(3),np_list_2))then
+                   elem_cnct_2d(-1,0,ne) = elem_cnct_2d(-1,0,ne)+1
+                   elem_cnct_2d(-1,elem_cnct_2d(-1,0,ne),ne) = ne2 
+                endif
+             endif
+          endif
+       enddo
+!!! check the elements attached to the 4th node
+       do noelem2 = 1,elems_at_node_2d(np_list(4),0) ! for each element attached to the 4th node
+          ne2 = elems_at_node_2d(np_list(4),noelem2) ! attached element number
+          if(ne2.ne.ne)then
+             np_list_2(1:4) = elem_nodes_2d(1:4,ne2) !list of nodes in attached element
+             if(np_list(2).ne.np_list(4))then ! only if two nodes are not repeated
+                if(inlist(np_list(2),np_list_2))then
+                   elem_cnct_2d(1,0,ne) = elem_cnct_2d(1,0,ne)+1
+                   elem_cnct_2d(1,elem_cnct_2d(1,0,ne),ne) = ne2 
+                endif
+             endif
+             if(np_list(3).ne.np_list(4))then ! only if the two nodes are not repeated
+                if(inlist(np_list(3),np_list_2))then
+                   elem_cnct_2d(2,0,ne) = elem_cnct_2d(2,0,ne)+1
+                   elem_cnct_2d(2,elem_cnct_2d(2,0,ne),ne) = ne2 
+                endif
+             endif
+          endif
+       enddo !noelem2
+    enddo
+    
+    call enter_exit(sub_name,2)
+    
+  end subroutine element_connectivity_2d
+
+!!!#############################################################################
+
+  subroutine evaluate_ordering()
+    !*evaluate_ordering:* calculates generations, Horsfield orders,
+    ! Strahler orders for a given tree
+    !DEC$ ATTRIBUTES DLLEXPORT,ALIAS:"SO_EVALUATE_ORDERING" :: EVALUATE_ORDERING
+
+    ! Local Variables
+    integer :: INLETS,ne,ne0,ne2,noelem2,np,np2,nn,num_attach,n_children, &
+         n_generation,n_horsfield,OUTLETS,STRAHLER,STRAHLER_ADD,temp1
+    LOGICAL :: DISCONNECT,DUPLICATE
+    character(len=60) :: sub_name
+    
+    ! --------------------------------------------------------------------------
+    
+    sub_name = 'evaluate_ordering'
+    call enter_exit(sub_name,1)
+    
+!!! Calculate branch generations
+    elem_ordrs = 0
+    maxgen=1
+    do ne=1,num_elems
+       ne0=elem_cnct(-1,1,ne) !parent
+       if(ne0.NE.0)THEN
+          n_generation=elem_ordrs(1,ne0) !parent generation
+          if(elem_cnct(1,0,ne0).EQ.1)THEN !single daughter
+             elem_ordrs(1,ne)=n_generation + (elem_symmetry(ne)-1)
+          else if(elem_cnct(1,0,ne0).GE.2)THEN
+             elem_ordrs(1,ne)=n_generation+1
+          endif
+       else
+          elem_ordrs(1,ne)=1 !generation 1
+       endif
+       maxgen=max(maxgen,elem_ordrs(1,ne))
+    enddo !noelem
+
+!!! Calculate the branch orders
+    do ne=num_elems,1,-1
+       n_horsfield=MAX(elem_ordrs(2,ne),1)
+       n_children=elem_cnct(1,0,ne) !number of child branches
+       if(n_children.EQ.1)THEN
+          if(elem_ordrs(1,elem_cnct(1,1,ne)).EQ.0)  n_children=0
+       endif
+       STRAHLER=0
+       STRAHLER_ADD=1
+       if(n_children.GE.2)THEN !branch has two or more daughters
+          STRAHLER=elem_ordrs(3,elem_cnct(1,1,ne)) !first daughter
+          do noelem2=1,n_children !for all daughters
+             ne2=elem_cnct(1,noelem2,ne) !global element # of daughter
+             temp1=elem_ordrs(2,ne2) !Horsfield order of daughter
+             if(temp1.GT.n_horsfield)then
+                n_horsfield=temp1
+             endif
+             if(elem_ordrs(3,ne2).LT.STRAHLER)THEN
+                STRAHLER_ADD=0
+             else if(elem_ordrs(3,ne2).GT.STRAHLER)THEN
+                STRAHLER_ADD=0
+                STRAHLER=elem_ordrs(3,ne2) !highest daughter
+             endif
+          enddo !noelem2 (ne2)
+          n_horsfield=n_horsfield+1 !Horsfield ordering
+       else if(n_children.EQ.1)THEN
+          ne2=elem_cnct(1,1,ne) !local element # of daughter
+          n_horsfield=elem_ordrs(2,ne2)+(elem_symmetry(ne)-1)
+          STRAHLER_ADD=elem_ordrs(3,ne2)+(elem_symmetry(ne)-1)
+       endif !elem_cnct
+       elem_ordrs(2,ne)=n_horsfield !store the Horsfield order
+       elem_ordrs(3,ne)=STRAHLER+STRAHLER_ADD !Strahler order
+    enddo !noelem
+    
+!!! Check for disconnected nodes and number of inlets and outlets
+    DUPLICATE=.FALSE.
+    do ne=1,num_elems
+       np=elem_nodes(1,ne)
+       np2=elem_nodes(2,ne)
+       if(np.EQ.np2)THEN
+          DUPLICATE=.TRUE.
+       endif
+    enddo
+    
+    DISCONNECT=.FALSE.
+    INLETS=0
+    OUTLETS=0
+    do np=1,num_nodes
+       num_attach=elems_at_node(np,0)
+       if(num_attach.EQ.0)THEN
+          DISCONNECT=.TRUE.
+       elseif(num_attach.EQ.1)THEN
+          ne=elems_at_node(np,1)
+          if(elem_cnct(1,0,ne).EQ.0) OUTLETS=OUTLETS+1
+          if(elem_cnct(-1,0,ne).EQ.0) INLETS=INLETS+1
+       elseif(num_attach.GT.3)THEN
+          WRITE(*,*) ' Node ',np,' attached to',num_attach,' elements'
+       endif
+    enddo
+    
+    call enter_exit(sub_name,2)
+    
+  end subroutine evaluate_ordering
+
+!!!#############################################################################
+  
+  function inlist(item,ilist)
+    
+    integer :: item,ilist(:)
+    ! Local variables
+    integer :: n
+    logical :: inlist
+
+    ! --------------------------------------------------------------------------
+
+    inlist = .false.
+    do n=1,size(ilist)
+       if(item == ilist(n)) inlist = .true.
+    enddo
+    
+  end function inlist
+  
 !!!###############################################################
   
   subroutine make_plane_from_3points(NORML,NORMALTYPE,POINT1,POINT2,POINT3)
@@ -449,6 +716,24 @@ contains
   end function get_local_elem
 
 !!!#############################################################################
+
+  function get_local_elem_2d(ne_global)
+
+    integer,intent(in) :: ne_global
+    ! Local variables
+    integer :: ne
+    integer :: get_local_elem_2d
+
+    ! --------------------------------------------------------------------------
+
+    get_local_elem_2d = 0
+    do ne = 1,num_elems_2d
+       if(ne_global.eq.elems_2d(ne)) get_local_elem_2d = ne
+    enddo
+
+  end function get_local_elem_2d
+
+!!!#############################################################################
   
   function get_local_node_f(ndimension,np_global) result(get_local_node)
     
@@ -495,6 +780,99 @@ contains
     end select
     
   end function get_local_node_f
+  
+!!!#############################################################################
+
+  subroutine group_elem_by_parent(ne_parent,elemlist)
+    !*group_elem_by_parent:* group elements that sit distal to a given
+    ! parent element (ne_parent)
+
+    integer,intent(in) :: ne_parent  ! the parent element number
+    integer :: elemlist(:)
+    ! Local Variables
+    integer :: nt_bns,ne_count,num_nodes,m,n,ne0
+    integer,allocatable :: ne_old(:),ne_temp(:)
+    character(len=60) :: sub_name
+
+    ! --------------------------------------------------------------------------
+    
+    sub_name='group_elem_by_parent'
+    call enter_exit(sub_name,1)
+    
+    elemlist = 0
+    allocate(ne_old(size(elemlist)))
+    allocate(ne_temp(size(elemlist)))
+    
+    nt_bns=1
+    ne_old(1) = ne_parent
+    ne_count = 1
+    elemlist(ne_count)=ne_parent
+    
+    do while(nt_bns.ne.0)
+       num_nodes=nt_bns
+       nt_bns=0
+       do m=1,num_nodes
+          ne0=ne_old(m) !parent global element number
+          do n=1,elem_cnct(1,0,ne0) !for each daughter branch
+             nt_bns=nt_bns+1
+             ne_temp(nt_bns)=elem_cnct(1,n,ne0)
+          enddo !n
+       enddo !m
+       do n=1,nt_bns
+          ne_old(n)=ne_temp(n) !updates list of previous generation element numbers
+          ne_count=ne_count+1
+          elemlist(ne_count)=ne_temp(n)
+       enddo !n
+    enddo !while
+    
+    deallocate(ne_old)
+    deallocate(ne_temp)
+    
+    call enter_exit(sub_name,2)
+    
+  end subroutine group_elem_by_parent
+
+!!!#############################################################################
+
+  subroutine group_elem_parent_term(ne_parent,parent_term_list)
+    !*group_elem_parent_term:* group the terminal elements that sit distal to
+    !  a given parent element (ne_parent)
+    !DEC$ ATTRIBUTES DLLEXPORT,ALIAS:"SO_GROUP_ELEM_PARENT_TERM" :: GROUP_ELEM_PARENT_TERM
+    
+    integer,intent(in) :: ne_parent  ! the parent element number
+    integer :: parent_term_list(:)
+    ! Local Variables
+    integer :: ne,ne_count,noelem,num_parents
+    integer,allocatable :: templist(:)
+    character(len=60) :: sub_name
+    
+    ! --------------------------------------------------------------------------
+
+    sub_name = 'group_elem_parent_term'
+    call enter_exit(sub_name,1)
+    
+    allocate(templist(num_elems))
+    
+    !reset the list of parent elements to zero
+    call group_elem_by_parent(ne_parent,templist)
+    
+    ne_count=count(templist.ne.0)
+    num_parents=0
+    parent_term_list=0
+    
+    do noelem=1,ne_count
+       ne = templist(noelem)
+       if(elem_cnct(1,0,ne).eq.0)then
+          num_parents=num_parents+1
+          parent_term_list(num_parents)=ne
+       endif !elem_cnct
+    enddo !noelem
+    
+    deallocate(templist)
+    
+    call enter_exit(sub_name,2)
+    
+  end subroutine group_elem_parent_term
   
 !!! ##########################################################################      
 
@@ -569,6 +947,145 @@ contains
     
     return
   end function linear
+
+!!!#############################################################################
+
+  subroutine triangles_from_surface(num_triangles,num_vertices,surface_elems, &
+       triangle,vertex_xyz)
+    !*triangles_from_surface:* generates a linear surface mesh of triangles
+    ! from an existing high order surface mesh. 
+    
+    integer :: num_triangles,num_vertices
+    integer,intent(in) :: surface_elems(:)
+    integer,allocatable :: triangle(:,:)
+    real(dp),allocatable :: vertex_xyz(:,:)
+    ! Local variables
+    integer,parameter :: ndiv = 4
+    integer :: i,index1,index2,j,ne,nelem,nmax_1,nmax_2,num_surfaces, &
+         num_tri_vert,nvertex_row,step_1,step_2
+    real(dp) :: X(3),xi(3)
+    logical :: four_nodes
+    character(len=3) :: repeat
+    character(len=60) :: sub_name
+    
+    ! --------------------------------------------------------------------------
+
+    sub_name = 'triangles_from_surface'
+    call enter_exit(sub_name,1)
+    
+    if(allocated(triangle)) deallocate(triangle)
+    allocate(triangle(3,2*num_elems_2d*ndiv**2))
+    if(allocated(vertex_xyz)) deallocate(vertex_xyz)
+    allocate(vertex_xyz(3,num_elems_2d*(ndiv+1)**2))
+    
+    triangle = 0
+    vertex_xyz = 0.0_dp
+    num_surfaces = count(surface_elems.ne.0)
+    num_triangles = 0
+    num_vertices = 0
+    num_tri_vert = 0 
+
+    do nelem = 1,num_surfaces
+       ne = surface_elems(nelem)
+       four_nodes = .false.
+       repeat = '0_0'
+       if(elem_nodes_2d(1,ne).eq.elem_nodes_2d(2,ne)) repeat = '1_0'
+       if(elem_nodes_2d(1,ne).eq.elem_nodes_2d(3,ne)) repeat = '2_0'
+       if(elem_nodes_2d(2,ne).eq.elem_nodes_2d(4,ne)) repeat = '2_1'
+       if(elem_nodes_2d(3,ne).eq.elem_nodes_2d(4,ne)) repeat = '1_1'
+
+       select case(repeat)
+       case ('0_0')
+        
+          nmax_1 = ndiv+1 ! ndiv+1 vertices in xi1 direction
+          step_1 = 0      ! # of vertices in xi1 is constant
+          nmax_2 = ndiv+1 ! ndiv+1 vertices in xi2 direction
+          step_2 = 0      ! # of vertices in xi2 is constant
+          index1 = 1
+          index2 = 2
+          four_nodes = .true.
+          
+       case ('1_0')
+          
+          nmax_1 = 1      ! start with 1 vertex in xi1 direction
+          step_1 = 1      ! increase # of vertices in xi1 with each step in xi2
+          nmax_2 = ndiv+1 ! ndiv+1 vertices in xi2 direction
+          step_2 = 0      ! # of vertices in xi2 is constant
+          index1 = 1
+          index2 = 2
+          
+       case ('1_1')
+          
+          nmax_1 = ndiv+1 ! start with ndiv+1 vertices in xi1 direction
+          step_1 = -1     ! decrease # of vertices in xi1 with each step in xi2
+          nmax_2 = ndiv+1 ! ndiv+1 vertices in xi2 direction
+          step_2 = 0      ! # of vertices in xi2 is constant
+          index1 = 1
+          index2 = 2
+          
+       case ('2_0')
+          
+          nmax_2 = ndiv+1 ! ndiv+1 vertices in xi1 direction
+          step_2 = 0      ! # of vertices in xi1 is constant
+          nmax_1 = 1      ! start with 1 vertex in xi2 direction
+          step_1 = 1      ! increase # of vertices in xi2 with each step in xi1          
+          index2 = 1
+          index1 = 2
+          
+       case ('2_1')
+          
+          nmax_2 = ndiv+1 ! ndiv+1 vertices in xi1 direction
+          step_2 = 0      ! # of vertices in xi1 is constant
+          nmax_1 = ndiv+1 ! start with ndiv+1 vertices in xi2 direction
+          step_1 = -1     ! decrease # of vertices in xi2 with each step in xi1
+          index2 = 1
+          index1 = 2
+       end select
+
+       xi(index2) = 0.0_dp
+       do i = 1,nmax_2
+          xi(index1) = 0.0_dp
+          do j = 1,nmax_1
+             num_vertices = num_vertices + 1
+             X = coord_at_xi(ne,xi,'hermite')
+             vertex_xyz(1:3,num_vertices) = X(1:3)
+             if(nmax_1.gt.1) xi(index1) = xi(index1) + 1.0_dp/(nmax_1-1)
+             if(i.gt.1.and.j.gt.1)then
+                num_triangles = num_triangles + 1
+                triangle(1,num_triangles) = num_vertices
+                triangle(2,num_triangles) = num_vertices-1
+                triangle(3,num_triangles) = nvertex_row+j-1
+                if(four_nodes.or.(.not.four_nodes.and.j.lt.nmax_1).or.step_1.eq.-1)then
+                   num_triangles = num_triangles + 1
+                   triangle(1,num_triangles) = num_vertices
+                   triangle(2,num_triangles) = nvertex_row+j
+                   triangle(3,num_triangles) = nvertex_row+j-1
+                endif
+                if(step_1.eq.-1.and.j.eq.nmax_1)then
+                   num_triangles = num_triangles + 1
+                   triangle(1,num_triangles) = num_vertices
+                   triangle(2,num_triangles) = nvertex_row+j+1
+                   triangle(3,num_triangles) = nvertex_row+j
+                endif
+             else if(step_1.eq.-1.and.i.eq.nmax_2.and.j.eq.1)then
+                num_triangles = num_triangles + 1
+                triangle(1,num_triangles) = num_vertices
+                triangle(2,num_triangles) = num_vertices-1
+                triangle(3,num_triangles) = num_vertices-2
+             endif
+          enddo !j
+          nvertex_row = num_vertices-nmax_1 !record first vertex # in previous row
+          if(nmax_2.gt.1) xi(index2) = xi(index2) + 1.0_dp/(nmax_2-1)
+          nmax_1 = nmax_1 + step_1
+       enddo !i
+    enddo
+    
+!    write(*,'('' Made'',I8,'' triangles to cover'',I6,'' surface elements'')') &
+!         num_triangles,num_surfaces !num_elems_2d
+    
+    call enter_exit(sub_name,2)
+    
+  end subroutine triangles_from_surface
 
 !!!##################################################
   
@@ -674,6 +1191,64 @@ contains
   end function check_colinear_points
   
 
+!!!#############################################################################
+  
+  function coord_at_xi(ne,xi,basis)
+    
+    integer,intent(in) :: ne
+    real(dp),intent(in) :: xi(:)
+    character(len=*),intent(in) :: basis
+    ! Local Variables
+    integer :: nn,nv
+    real(dp) :: phi(4),phi_10(2),phi_11(2),phi_20(2),phi_21(2),x(4,3,4)
+    real(dp) :: coord_at_xi(3)
+
+    ! --------------------------------------------------------------------------
+    
+    select case (basis)
+    case('linear')
+       forall (nn=1:4) x(1,1:3,nn) = node_xyz_2d(1,1,1:3,elem_nodes_2d(nn,ne))
+       phi(1) = (1.0_dp - xi(1))*(1.0_dp - xi(2))
+       phi(2) = xi(1)*(1.0_dp - xi(2))
+       phi(3) = (1.0_dp - xi(1))*xi(2)
+       phi(4) = xi(1)*xi(2)
+       
+       coord_at_xi(1:3) = phi(1)*x(1,1:3,1)+phi(2)*x(1,1:3,2)+phi(3)* &
+            x(1,1:3,3)+phi(4)*x(1,1:3,4)
+       
+    case('hermite')
+       do nn=1,4
+          nv = elem_versn_2d(nn,ne)
+          x(1:4,1:3,nn) = node_xyz_2d(1:4,nv,1:3,elem_nodes_2d(nn,ne))
+       enddo
+       phi_10(1) = (2.0_dp*xi(1)-3.0_dp)*xi(1)*xi(1)+1.0_dp  ! 2xi^3-3xi^2+1
+       phi_10(2) = (2.0_dp*xi(2)-3.0_dp)*xi(2)*xi(2)+1.0_dp  ! 2xi^3-3xi^2+1
+       phi_20(1) = xi(1)*xi(1)*(3.0_dp-2.0_dp*xi(1))         ! -2xi^3+3xi^2
+       phi_20(2) = xi(2)*xi(2)*(3.0_dp-2.0_dp*xi(2))         ! -2xi^3+3xi^2
+       phi_11(1) = ((xi(1)-2.0_dp)*xi(1)+1.0_dp)*xi(1)       ! xi^3-2xi^2+xi
+       phi_11(2) = ((xi(2)-2.0_dp)*xi(2)+1.0_dp)*xi(2)       ! xi^3-2xi^2+xi
+       phi_21(1) = xi(1)*xi(1)*(xi(1)-1.0_dp)                ! xi^3-xi^2
+       phi_21(2) = xi(2)*xi(2)*(xi(2)-1.0_dp)                ! xi^3-xi^2
+       coord_at_xi(1:3) = phi_10(1)*phi_10(2)*x(1,1:3,1) &
+            + phi_20(1)*phi_10(2)*x(1,1:3,2) &
+            + phi_10(1)*phi_20(2)*x(1,1:3,3) &
+            + phi_20(1)*phi_20(2)*x(1,1:3,4) &
+            + phi_11(1)*phi_10(2)*x(2,1:3,1) * scale_factors_2d(2,ne) &
+            + phi_21(1)*phi_10(2)*x(2,1:3,2) * scale_factors_2d(6,ne) &
+            + phi_11(1)*phi_20(2)*x(2,1:3,3) * scale_factors_2d(10,ne) &
+            + phi_21(1)*phi_20(2)*x(2,1:3,4) * scale_factors_2d(14,ne) &
+            + phi_10(1)*phi_11(2)*x(3,1:3,1) * scale_factors_2d(3,ne) &
+            + phi_20(1)*phi_11(2)*x(3,1:3,2) * scale_factors_2d(7,ne) &
+            + phi_10(1)*phi_21(2)*x(3,1:3,3) * scale_factors_2d(11,ne) &
+            + phi_20(1)*phi_21(2)*x(3,1:3,4) * scale_factors_2d(15,ne) &
+            + phi_11(1)*phi_11(2)*x(4,1:3,1) * scale_factors_2d(4,ne) &
+            + phi_21(1)*phi_11(2)*x(4,1:3,2) * scale_factors_2d(8,ne) &
+            + phi_11(1)*phi_21(2)*x(4,1:3,3) * scale_factors_2d(12,ne) &
+            + phi_21(1)*phi_21(2)*x(4,1:3,4) * scale_factors_2d(16,ne)
+    end select
+    
+  end function coord_at_xi
+  
 !!!###############################################################
   
   function cross_product(A,B)
@@ -787,6 +1362,137 @@ contains
 
   end function mesh_a_x_eq_b
   
+!!!#############################################################################
+  
+  subroutine reallocate_node_elem_arrays(num_elems_new,num_nodes_new)
+    !*reallocate_node_elem_arrays:* Reallocates the size of geometric
+    ! arrays when modifying geometries
+
+    use indices
+
+    integer,intent(in) :: num_elems_new,num_nodes_new
+    ! Local variables
+    integer,allocatable :: nodelem_temp(:),enodes_temp(:,:),enodes_temp2(:,:,:)
+    real(dp),allocatable :: xyz_temp(:,:),rnodes_temp(:,:)
+    logical,allocatable :: exp_temp(:)
+    character(len=60) :: sub_name
+
+    ! --------------------------------------------------------------------------
+
+    sub_name = 'reallocate_node_elem_arrays'
+    call enter_exit(sub_name,1)
+    
+    allocate(nodelem_temp(num_nodes))
+    nodelem_temp = nodes ! copy to temporary array
+    deallocate(nodes) !deallocate initially allocated memory
+    allocate(nodes(num_nodes_new))
+    nodes(1:num_nodes)=nodelem_temp(1:num_nodes)
+    deallocate(nodelem_temp) !deallocate the temporary array
+    
+    allocate(xyz_temp(3,num_nodes))
+    xyz_temp=node_xyz
+    deallocate(node_xyz)
+    allocate(node_xyz(3,num_nodes_new))
+    node_xyz(1:3,1:num_nodes)=xyz_temp(1:3,1:num_nodes)
+    
+    allocate(nodelem_temp(num_elems))
+    nodelem_temp = elems ! copy to temporary array
+    deallocate(elems) !deallocate initially allocated memory
+    allocate(elems(num_elems_new))
+    elems(1:num_elems)=nodelem_temp(1:num_elems)
+    deallocate(nodelem_temp) !deallocate the temporary array
+    
+    allocate(enodes_temp(2,num_elems))
+    enodes_temp=elem_nodes
+    deallocate(elem_nodes)
+    allocate(elem_nodes(2,num_elems_new))
+    elem_nodes(1:2,1:num_elems)=enodes_temp(1:2,1:num_elems)
+    deallocate(enodes_temp)
+    
+    if(allocated(elem_field).and.num_ne.gt.0)then
+       allocate(rnodes_temp(num_ne,num_elems))
+       rnodes_temp=elem_field
+       deallocate(elem_field)
+       allocate(elem_field(num_ne,num_elems_new))
+       elem_field(1:num_ne,1:num_elems)=rnodes_temp(1:num_ne,1:num_elems)
+       deallocate(rnodes_temp)
+       elem_field(1:num_ne,num_elems+1:num_elems_new) = 0.0_dp
+    endif
+    
+    allocate(rnodes_temp(3,num_elems))
+    rnodes_temp=elem_direction
+    deallocate(elem_direction)
+    allocate(elem_direction(3,num_elems_new))
+    elem_direction(1:3,1:num_elems)=rnodes_temp(1:3,1:num_elems)
+    deallocate(rnodes_temp)
+    elem_direction(1:3,num_elems+1:num_elems_new) = 0.0_dp
+    
+    if(allocated(node_field).and.num_nj.gt.0)then
+       allocate(rnodes_temp(num_nj,num_nodes))
+       rnodes_temp=node_field
+       deallocate(node_field)
+       allocate(node_field(num_nj,num_nodes_new))
+       node_field(1:num_nj,1:num_nodes)=rnodes_temp(1:num_nj,1:num_nodes)
+       deallocate(rnodes_temp)
+       node_field(1:num_nj,num_nodes+1:num_nodes_new)=0.0_dp
+    endif
+    
+    allocate(nodelem_temp(num_elems))
+    nodelem_temp = elem_symmetry ! copy to temporary array
+    deallocate(elem_symmetry) !deallocate initially allocated memory
+    allocate(elem_symmetry(num_elems_new))
+    elem_symmetry(1:num_elems)=nodelem_temp(1:num_elems)
+    deallocate(nodelem_temp) !deallocate the temporary array
+    elem_symmetry(num_elems+1:num_elems_new)=1
+    
+    allocate(enodes_temp2(-1:1,0:2,0:num_elems))
+    enodes_temp2=elem_cnct
+    deallocate(elem_cnct)
+    allocate(elem_cnct(-1:1,0:2,0:num_elems_new))
+    elem_cnct(-1:1,0:2,0:num_elems)=enodes_temp2(-1:1,0:2,0:num_elems)
+    deallocate(enodes_temp2)
+    elem_cnct(-1:1,0:2,num_elems+1:num_elems_new) = 0
+    
+    allocate(enodes_temp(num_ord,num_elems))
+    enodes_temp=elem_ordrs
+    deallocate(elem_ordrs)
+    allocate(elem_ordrs(num_ord,num_elems_new))
+    elem_ordrs(1:num_ord,1:num_elems)=enodes_temp(1:num_ord,1:num_elems)
+    deallocate(enodes_temp)
+    elem_ordrs(1:num_ord,num_elems+1:num_elems_new) = 0
+    
+    if(allocated(elem_units_below).and.num_nu.gt.0)then
+       allocate(nodelem_temp(num_elems))
+       nodelem_temp=elem_units_below
+       deallocate(elem_units_below)
+       allocate(elem_units_below(num_elems_new))
+       elem_units_below(1:num_elems)=nodelem_temp(1:num_elems)
+       deallocate(nodelem_temp)
+       elem_units_below(num_elems+1:num_elems_new)=0
+    endif
+    
+    allocate(enodes_temp(num_nodes,0:3))
+    enodes_temp=elems_at_node
+    deallocate(elems_at_node)
+    allocate(elems_at_node(num_nodes_new,0:3))
+    elems_at_node(1:num_nodes,0:3)=enodes_temp(1:num_nodes,0:3)
+    deallocate(enodes_temp)
+    elems_at_node(num_nodes+1:num_nodes_new,0:3)=0
+    
+    if(model_type.eq.'gas_mix')then
+       allocate(exp_temp(num_elems))
+       exp_temp = expansile
+       deallocate(expansile)
+       allocate(expansile(num_elems_new))
+       expansile(1:num_elems)=exp_temp(1:num_elems)
+       deallocate(exp_temp)
+       expansile(num_elems+1:num_elems_new)=.false.
+    endif
+    
+    call enter_exit(sub_name,2)
+    
+  end subroutine reallocate_node_elem_arrays
+  
 !!!##################################################
   
   function scalar_product_3(A,B)
@@ -886,9 +1592,9 @@ contains
     logical :: point_internal_to_surface
 
 !!! Local Variables
-    integer :: i,ncrossed,ntri,num_triangles
+    integer :: i,nclosest,ncrossed,ntri,num_triangles
     real(dp) :: area,area_triangle,cofm_surfaces(3),denominator,&
-         norm_v(3),point(3),P1(3),P2(3),P3(3),u
+         dist,min_dist,norm_v(3),point(3),P1(3),P2(3),P3(3),u
     real(dp),parameter :: dist_tol = 1.0e-4_dp, user_tol = 1.0e-14_dp
     logical :: cross_any
 
