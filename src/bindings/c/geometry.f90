@@ -157,6 +157,67 @@ contains
 !
 !###################################################################################
 !
+  subroutine list_tree_c() bind(C, name="list_tree_c")
+
+    use geometry, only: list_tree
+    implicit none
+    
+#if defined _WIN32 && defined __INTEL_COMPILER
+    call so_list_tree()
+#else
+    call list_tree()
+#endif
+
+  end subroutine list_tree_c
+    
+!
+!###################################################################################
+!
+  subroutine scale_radii_c(scale_factor) bind(C, name="scale_radii_c")
+
+    use arrays,only: dp
+    use geometry, only: scale_radii
+    implicit none
+
+    real(dp),intent(in) :: scale_factor
+    
+#if defined _WIN32 && defined __INTEL_COMPILER
+    call so_scale_radii(scale_factor)
+#else
+    call scale_radii(scale_factor)
+#endif
+
+  end subroutine scale_radii_c
+    
+!
+!###################################################################################
+!
+  subroutine scale_tree_c(drn, drn_len, scale_factor) bind(C, name="scale_tree_c")
+
+    use arrays,only: dp
+    use iso_c_binding, only: c_ptr
+    use utils_c, only: strncpy
+    use other_consts, only: MAX_STRING_LEN
+    use geometry, only: scale_tree
+    implicit none
+
+    integer,intent(in) :: drn_len
+    real(dp),intent(in) :: scale_factor
+    type(c_ptr), value, intent(in) :: drn    
+    character(len=MAX_STRING_LEN) :: drn_f
+    
+    call strncpy(drn_f, drn, drn_len)
+#if defined _WIN32 && defined __INTEL_COMPILER
+    call so_scale_tree(drn_f, scale_factor)
+#else
+    call scale_tree(drn_f, scale_factor)
+#endif
+
+  end subroutine scale_tree_c
+    
+!
+!###################################################################################
+!
   subroutine make_data_grid_c(surface_elems, spacing, to_export, filename, filename_len, groupname, groupname_len)&
  bind(C, name="make_data_grid_c")
     
@@ -276,7 +337,8 @@ contains
 !###################################################################################
 !
 
-  subroutine define_rad_from_file_c(FIELDFILE, filename_len, radius_type, radius_type_len) bind(C, name="define_rad_from_file_c")
+  subroutine define_rad_from_file_c(FIELDFILE, filename_len, &
+       radius_type, radius_type_len) bind(C, name="define_rad_from_file_c")
 
     use iso_c_binding, only: c_ptr
     use utils_c, only: strncpy

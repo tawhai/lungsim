@@ -13,6 +13,9 @@ void define_node_geometry_c(const char *NODEFILE, int *filename_len);
 void define_node_geometry_2d_c(const char *NODEFILE, int *filename_len);
 void define_data_geometry_c(const char *DATAFILE, int *filename_len);
 void group_elem_parent_term_c(int *ne_parent);
+void list_tree_c();
+void scale_radii_c(double *scale_factor);
+void scale_tree_c(const char *drn, int *drn_len, double *scale_factor);
 void make_data_grid_c(int *surface_elems, double *spacing, int *to_export, const char *filename, int *filename_len, const char *groupname, int *groupname_len);
 extern void make_2d_vessel_from_1d_c(int *elemlist_len, int elemlist[]);
 void define_rad_from_file_c(const char *FIELDFILE, int *filename_len, const char *radius_type, int *radius_type_len);
@@ -85,6 +88,22 @@ void define_data_geometry(const char *DATAFILE)
 void group_elem_parent_term(int ne_parent)
 {
   group_elem_parent_term_c(&ne_parent);
+}
+
+void list_tree()
+{
+  list_tree_c();
+}
+
+void scale_radii(double scale_factor)
+{
+  scale_radii_c(&scale_factor);
+}
+
+void scale_tree(const char *drn, double scale_factor)
+{
+  int drn_len = (int)strlen(drn);
+  scale_tree_c(drn, &drn_len, &scale_factor);
 }
 
 void make_data_grid(int surface_elems, double spacing, int to_export, const char *filename, const char *groupname)

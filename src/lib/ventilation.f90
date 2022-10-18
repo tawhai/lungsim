@@ -49,7 +49,7 @@ contains
     ! Local variables
     integer :: gdirn                  ! 1(x), 2(y), 3(z); upright lung (for our
     !                                   models) is z, supine is y.
-    integer :: iter_step,n,ne,num_brths,num_itns,nunit
+    integer :: i,iter_step,n,ne,ne1,num_brths,num_itns,nunit
     real(dp) :: chestwall_restvol     ! resting volume of chest wall
     real(dp) :: chest_wall_compliance ! constant compliance of chest wall
     real(dp) :: constrict             ! for applying uniform constriction
@@ -212,6 +212,19 @@ contains
     call sum_elem_field_from_periphery(ne_Vdot)
     elem_field(ne_Vdot,1:num_elems) = &
          elem_field(ne_Vdot,1:num_elems)/elem_field(ne_Vdot,1)
+
+    elem_field(ne_Vdot0,:) = 0.0_dp
+    do ne = num_elems,1,-1
+       if(elem_cnct(1,0,ne).eq.0)then
+          elem_field(ne_Vdot0,ne) = elem_field(ne_Vdot,ne)
+       else
+          do i = 1,elem_cnct(1,0,ne)
+             ne1 = elem_cnct(1,i,ne)
+             elem_field(ne_Vdot0,ne) = elem_field(ne_Vdot0,ne) + elem_field(ne_Vdot0,ne1)
+          enddo
+          elem_field(ne_Vdot0,ne) = elem_field(ne_Vdot0,ne)/real(elem_cnct(1,0,ne))
+       endif
+    enddo
 
 !    call export_terminal_solution(TERMINAL_EXNODEFILE,'terminals')
 
@@ -557,8 +570,8 @@ contains
             *(lambda**2+1.0_dp)/lambda**4)
        unit_field(nu_comp,nunit) = undef/unit_field(nu_comp,nunit) ! V/P
        ! add the chest wall (proportionately) in parallel
-       unit_field(nu_comp,nunit) = 1.0_dp/(1.0_dp/unit_field(nu_comp,nunit)&
-            +1.0_dp/(chest_wall_compliance/dble(num_units)))
+       !unit_field(nu_comp,nunit) = 1.0_dp/(1.0_dp/unit_field(nu_comp,nunit)&
+       !     +1.0_dp/(chest_wall_compliance/dble(num_units)))
        !estimate an elastic recoil pressure for the unit
        unit_field(nu_pe,nunit) = cc/2.0_dp*(3.0_dp*a+b)*(lambda**2.0_dp &
             -1.0_dp)*exp_term/lambda

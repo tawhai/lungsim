@@ -44,11 +44,14 @@ module geometry
   public evaluate_ordering
   public get_final_real
   public get_local_node_f
+  public list_tree
   public make_data_grid
   public make_2d_vessel_from_1d
   public reallocate_node_elem_arrays
   public refine_1d_elements
   public reorder_tree
+  public scale_radii
+  public scale_tree
   public set_initial_volume
   public triangles_from_surface
   public volume_of_mesh
@@ -1218,6 +1221,126 @@ contains
     
   end subroutine triangles_from_surface
 
+!!!#############################################################################
+
+  subroutine scale_radii(scale_factor)
+
+    real(dp),intent(in) :: scale_factor
+    
+    character(len=60) :: sub_name
+    
+    ! --------------------------------------------------------------------------
+
+    sub_name = 'scale_radii'
+    call enter_exit(sub_name,1)
+
+    elem_field(ne_radius,:) = elem_field(ne_radius,:) * scale_factor
+    elem_field(ne_vol,:) = elem_field(ne_vol,:) * scale_factor**2.0_dp
+    
+    call enter_exit(sub_name,2)
+    
+  end subroutine scale_radii
+  
+!!!#############################################################################
+
+  subroutine scale_tree(drn, scale_factor)
+
+    real(dp),intent(in) :: scale_factor
+    character(len=*), intent(in) :: drn
+    
+    character(len=60) :: sub_name
+    
+    ! --------------------------------------------------------------------------
+
+    sub_name = 'scale_tree'
+    call enter_exit(sub_name,1)
+
+    select case (trim(drn))
+    case('x')
+       node_xyz(1,:) = node_xyz(1,:) * scale_factor
+    case('y')
+       node_xyz(2,:) = node_xyz(2,:) * scale_factor
+    case('z')
+       node_xyz(3,:) = node_xyz(3,:) * scale_factor
+    end select
+       
+    call enter_exit(sub_name,1)
+    
+  end subroutine scale_tree
+
+!!!#############################################################################
+
+  subroutine list_tree()
+
+    integer :: ne,ne0,ngen,nhrd,nmax_gen,nums(40,2),n_dr
+    real(dp) :: diameter_ratio,radii(40,2),length_diameter,lengths(40,2)
+    character(len=60) :: sub_name
+    
+    ! --------------------------------------------------------------------------
+
+    sub_name = 'list_tree'
+    call enter_exit(sub_name,1)
+
+    n_dr = 0
+    diameter_ratio = 0.0_dp
+    length_diameter = 0.0_dp
+    nums = 0
+    radii = 0.0
+    lengths = 0.0_dp
+    nmax_gen = 0
+
+    do ne = 1,num_elems
+       ngen = elem_ordrs(1,ne)
+       nhrd = elem_ordrs(2,ne)
+       nums(ngen,1) = nums(ngen,1) + 1
+       radii(ngen,1) = radii(ngen,1) + elem_field(ne_radius,ne)
+       lengths(ngen,1) = lengths(ngen,1) + elem_field(ne_length,ne)
+       nums(nhrd,2) = nums(nhrd,2) + 1
+       radii(nhrd,2) = radii(nhrd,2) + elem_field(ne_radius,ne)
+       lengths(nhrd,2) = lengths(nhrd,2) + elem_field(ne_length,ne)
+       if (ngen.gt.nmax_gen) nmax_gen = ngen
+       length_diameter = length_diameter + elem_field(ne_length,ne)/ &
+            (2.0_dp*elem_field(ne_radius,ne))
+       if(elem_cnct(-1,0,ne).ne.0)then
+          ne0 = elem_cnct(-1,1,ne)
+          if(elem_ordrs(1,ne0).ne.ngen)then
+             diameter_ratio = diameter_ratio + elem_field(ne_radius,ne)/elem_field(ne_radius,ne0)
+             n_dr = n_dr + 1
+          endif
+       endif
+    enddo
+
+    length_diameter = length_diameter/real(num_elems)
+    diameter_ratio = diameter_ratio/real(n_dr)
+
+    do ngen = 1,nmax_gen
+       radii(ngen,1) = radii(ngen,1)/real(nums(ngen,1)) ! generations
+       radii(ngen,2) = radii(ngen,2)/real(nums(ngen,2)) ! orders
+       lengths(ngen,1) = lengths(ngen,1)/real(nums(ngen,1)) ! generations
+       lengths(ngen,2) = lengths(ngen,2)/real(nums(ngen,2)) ! orders
+    enddo
+    write(*,'('' Model tree geometry:'')')
+    write(*,'(''--gen#   #brns   avLen   avRad  avL/D--'')')
+    do ngen = 1,nmax_gen
+       write(*,'(i6, i8, 3(f10.2))') ngen,nums(ngen,1),lengths(ngen,1), &
+            radii(ngen,1),lengths(ngen,1)/(2.0_dp*radii(ngen,1))
+    enddo
+    write(*,'(''--ord#   #brns   avLen   avRad  avL/D--'')')
+    do nhrd = nmax_gen,1,-1
+       write(*,'(i6, i8, 3(f10.2))') nhrd,nums(nhrd,2),lengths(nhrd,2), &
+            radii(nhrd,2),lengths(nhrd,2)/(2.0_dp*radii(nhrd,2))
+    enddo
+
+    write(*,'('' L/D ='',f10.2,''; D/Dp ='',f10.2)') length_diameter, &
+         diameter_ratio
+
+    write(*,*) 'Enter the return key to continue'
+    read(*,*)
+    
+    call enter_exit(sub_name,2)
+    
+  end subroutine list_tree
+    
 !!!#############################################################################
   
   subroutine make_data_grid(surface_elems,spacing,to_export,filename,groupname)
@@ -2533,8 +2656,9 @@ contains
     character(LEN=*), optional :: group_type_in, group_option_in
     !Input options ORDER_SYSTEM=STRAHLER (CONTROL_PARAM=RDS), HORSFIELD (CONTROL_PARAM=RDH)
     ! Local variables
-    integer :: inlet_count,n,ne,ne0,ne_max,ne_min,ne_start,nindex,norder,n_max_ord
-    real(dp) :: max_radius,radius,ratio_diameter
+    integer :: inlet_count,n,ne,ne0,ne_max,ne_min,ne_start,nindex,norder,n_max_ord, &
+         ngen,nhrd,ne1,ne2,nord1,nord2
+    real(dp) :: max_radius,radius,ratio_diameter,radius0
     logical :: found
     character(LEN=100) :: group_type, group_options
     character(len=60) :: sub_name
@@ -2576,7 +2700,7 @@ contains
     
     ne=ne_start
 
-    if(ORDER_SYSTEM(1:3).eq.'fit')then
+    if(ORDER_SYSTEM(1:3).eq.'ftt')then
        nindex = no_hord ! default is Horsfield ordering; could be modified to either type
        do ne = ne_min,ne_max
           if(elem_field(ne_radius,ne).lt.USER_RAD)then
@@ -2594,15 +2718,41 @@ contains
                         n_max_ord)+log10(2.0_dp*max_radius)))*0.5_dp
                    elem_field(ne_radius,ne) = radius
                    if(ne_vol.gt.0)then
-                     elem_field(ne_vol,ne) = pi*radius**2*elem_field(ne_length,ne)
- 				   endif
+                      elem_field(ne_vol,ne) = pi*radius**2*elem_field(ne_length,ne)
+                   endif
                 else
                    ne0 = elem_cnct(-1,1,ne0)
                 endif
              enddo
           endif
        enddo
-    
+       
+    elseif(ORDER_SYSTEM(1:3).eq.'fit')then
+       nindex = no_hord ! default is Horsfield ordering; could be modified to either type
+       max_radius = elem_field(ne_radius,1)
+       n_max_ord = elem_ordrs(nindex,1)
+       ratio_diameter = 10.d0**(log10(USER_RAD/max_radius)/dble(1-n_max_ord))
+       do ne = ne_min,ne_max
+          if(elem_field(ne_radius,ne).lt.USER_RAD)then
+             norder = elem_ordrs(nindex,ne)
+             ne0 = elem_cnct(-1,1,ne)
+             radius0 = elem_field(ne_radius,ne0)
+             ! estimate radius based on Horsfield order and diameter ratio
+             radius = (10.0_dp**(log10(ratio_diameter)*dble(norder- &
+                  n_max_ord)+log10(2.0_dp*max_radius)))*0.5_dp
+             ! make sure the L/D ratio is not too big
+             if(elem_field(ne_length,ne)/radius .gt. 6.0_dp) &
+                  radius = elem_field(ne_length,ne)/6.0_dp
+             ! make sure the diameter is not larger than parent
+             if(radius/radius0 .gt. 0.95_dp) radius = 0.95_dp * radius0
+             ! make sure the diameter ratio is not too small
+             if(radius/radius0 .lt. 0.4_dp) radius = 0.4_dp * radius0
+             elem_field(ne_radius,ne) = radius
+             if(ne_vol.gt.0)then
+                elem_field(ne_vol,ne) = pi*radius**2.0_dp*elem_field(ne_length,ne)
+             endif
+          endif
+       enddo
     else
 
        !Strahler and Horsfield ordering system
@@ -2628,7 +2778,7 @@ contains
           endif
        enddo
     endif
-    
+
     call enter_exit(sub_name,2)
     
   end subroutine define_rad_from_geom
