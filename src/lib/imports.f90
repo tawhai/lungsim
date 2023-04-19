@@ -36,6 +36,7 @@ contains
 ! has been saved in an exelem format as a single flow field (elements listed with
 ! ventilation as field values).
  subroutine import_ventilation(FLOWFILE)
+ !DEC$ ATTRIBUTES DLLEXPORT,ALIAS:"SO_IMPORT_VENTILATION" :: IMPORT_VENTILATION
 
    character(len=MAX_FILENAME_LEN),intent(in) :: FLOWFILE
    !local variables
@@ -71,6 +72,7 @@ contains
 ! has been saved in an exelem format as a single flow field (elements listed with
 ! ventilation as field values).
  subroutine import_perfusion(FLOWFILE)
+ !DEC$ ATTRIBUTES DLLEXPORT,ALIAS:"SO_IMPORT_PERFUSION" :: IMPORT_PERFUSION
 
    character(len=MAX_FILENAME_LEN),intent(in) :: FLOWFILE
    !local variables
@@ -92,7 +94,7 @@ contains
    enddo
 
 !!! sum the fields up the tree
-   call sum_elem_field_from_periphery(ne_Qdot) !sum the air flows recursively UP the tree
+   call sum_elem_field_from_periphery(ne_Qdot) !sum the flows recursively UP the tree
    maxflow = elem_field(ne_Qdot,1)
 
    call enter_exit(sub_name,2)
@@ -103,6 +105,7 @@ contains
 !
 !>*import_exelemfield:* This subroutine reads in the content of an exelem field file (1 field)
  subroutine import_exelemfield(FLOWFILE,field_no)
+ !DEC$ ATTRIBUTES DLLEXPORT,ALIAS:"SO_IMPORT_EXELEMFIELD" :: IMPORT_EXELEMFIELD
 
    character(len=MAX_FILENAME_LEN),intent(in) :: FLOWFILE
    integer, intent(in) :: field_no
@@ -110,13 +113,18 @@ contains
    integer :: ierror,ne,nunit
    character(LEN=132) :: ctemp1,exfile
    real(dp) :: flow,flow_unit,maxflow
-
+   character(len=300) :: readfile
    character(len=60) :: sub_name
 
    sub_name = 'import_exelemfield'
    call enter_exit(sub_name,1)
 
-   open(10, file=FLOWFILE, status='old')
+    if(index(FLOWFILE, ".exelem")> 0) then !full filename is given
+       readfile = FLOWFILE
+    else ! need to append the correct filename extension
+       readfile = trim(FLOWFILE)//'.exelem'
+    endif
+   open(10, file=readfile, status='old')
    ne = 0
    read_elem_flow : do !define a do loop name
      !.......read element flow
