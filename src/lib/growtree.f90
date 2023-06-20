@@ -564,9 +564,9 @@ contains
   !
   !*create_new_node:* sets up arrays for a new mesh node and element.
   !
-  subroutine create_new_node(ne,ne_start,np,np_start,MAKE)
+  subroutine create_new_node(ne,ne_global,ne_start,np,np_start,MAKE)
 
-    integer :: ne,ne_start,np,np_start
+    integer :: ne,ne_global,ne_start,np,np_start
     logical :: MAKE
 
     !Local variables
@@ -577,7 +577,8 @@ contains
 
     if(MAKE)then
        ne=ne+1
-       elems(ne) = ne ! store global element number
+       ne_global = ne_global + 1
+       elems(ne) = ne_global ! store global element number
        elem_nodes(1,ne) = np_start
        elems_at_node(np_start,0)=elems_at_node(np_start,0)+1
        elems_at_node(np_start,elems_at_node(np_start,0))=ne
@@ -737,16 +738,16 @@ contains
 
 !!!#############################################################################
   
-  subroutine grow_tree(surface_elems,parent_ne,angle_max,angle_min,&
+  subroutine grow_tree(surface_elems,global_parent_ne,angle_max,angle_min,&
        branch_fraction,length_limit,shortest_length,rotation_limit)
     !interface to the grow_recursive_tree subroutine 
 
-    use geometry,only: element_connectivity_1d,evaluate_ordering, &
+    use geometry,only: element_connectivity_1d,evaluate_ordering,get_local_elem_1d, &
          group_elem_parent_term,reallocate_node_elem_arrays,triangles_from_surface
     use mesh_utilities,only: get_local_elem_2d
     
     integer,intent(in)  :: surface_elems(:)         ! list of surface elements defining the host region
-    integer,intent(in)  :: parent_ne                ! stem branch that supplies 'parents' to grow from
+    integer,intent(in)  :: global_parent_ne(:)      ! global stem branch that supplies 'parents' to grow from
     real(dp),intent(in) :: angle_max                ! maximum branch angle with parent; in degrees
     real(dp),intent(in) :: angle_min                ! minimum branch angle with parent; in degrees
     real(dp),intent(in) :: branch_fraction          ! fraction of distance (to COFM) to branch
@@ -754,9 +755,12 @@ contains
     real(dp),intent(in) :: shortest_length          ! length that short branches are reset to (shortest in model)
     real(dp),intent(in) :: rotation_limit           ! maximum angle of rotation of branching plane
 
-    integer :: i,num_elems_new,num_nodes_new
+    integer :: i,num_elems_new,num_nodes_new,parent_ne
     integer,allocatable :: elem_list(:), parent_list(:)
 
+!!! get the local element number (parent_ne) for global element number (global_parent_ne)
+    parent_ne = get_local_elem_1d(global_parent_ne(0))
+    
 !!! allocate temporary arrays
     allocate(parent_list(num_elems))
     parent_list = 0
@@ -834,7 +838,7 @@ contains
     integer,allocatable :: map_seed_to_space(:)     ! records initial elem associated w. data points (the 'space')
     integer,allocatable :: num_seeds_from_elem(:)   ! records # of seeds currently grouped with an elem
 
-    integer :: i,j,kount,M,N,nd,nd_min,ne,ne_grnd_parent,ne_parent,ne_start,ne_stem,&
+    integer :: i,j,kount,M,N,nd,nd_min,ne,ne_global,ne_grnd_parent,ne_parent,ne_start,ne_stem,&
          noelem_parent,np,np_start,np_prnt_start,np_grnd_start,num_seeds_in_space,num_next_parents, &
          num_parents,num_terminal
 
@@ -879,6 +883,7 @@ contains
     WRITE(*,'(''  parent  #seeds  #terminal'')')
 
     ! Set initial values for local and global nodes and elements
+    ne_global = maxval(elems)
     ne = num_elems !initialise mesh global element #
     np = num_nodes !initialise mesh global node #
     ne_start = ne  ! for calling smoothing in last step
@@ -931,7 +936,7 @@ contains
                 do N = 1,2 !for each of the two new branches
                    ! Set up arrays for new element and node
                    ! after create_new_node the current element == ne and current node == np
-                   call create_new_node(ne,ne_parent,np,np_start,.TRUE.)
+                   call create_new_node(ne,ne_global,ne_parent,np,np_start,.TRUE.)
                    ! find the centre of mass of seed points
                    if(diagnostics_on) write(*,'('' New node'',i7)') np
                    call calculate_seed_cofm(map_seed_to_elem,ne,COFM)

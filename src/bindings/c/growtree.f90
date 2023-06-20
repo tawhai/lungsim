@@ -8,7 +8,7 @@ contains
   !###################################################################################
   !
   ! the main growing subroutine. Generates a volume-filling tree into a closed surface.
-  subroutine grow_tree_c(surface_elems_len, surface_elems, parent_ne, &
+  subroutine grow_tree_c(surface_elems_len, surface_elems, parent_ne_len, parent_ne, &
        angle_max, angle_min, branch_fraction, length_limit, &
        shortest_length, rotation_limit) bind(C, name="grow_tree_c")
     
@@ -21,7 +21,8 @@ contains
     
     integer,intent(in) :: surface_elems_len
     integer,intent(in) :: surface_elems(surface_elems_len)
-    integer,intent(in) :: parent_ne
+    integer,intent(in) :: parent_ne_len
+    integer,intent(in) :: parent_ne(parent_ne_len)
     real(dp),intent(in) :: angle_max
     real(dp),intent(in) :: angle_min
     real(dp),intent(in) :: branch_fraction
