@@ -1,0 +1,33 @@
+> !
+> 
+diff -r src/lib/geometry.f90 new_fitting_src/lib/geometry.f90
+1352c1352,1353
+<   subroutine make_data_grid(surface_elems, offset, spacing, filename, groupname)
+---
+>   subroutine make_data_grid(surface_elems, offset, spacing, filename, groupname, &
+>        volume)
+1357a1359
+>     real(dp) :: volume
+1449c1451,1453
+<     
+---
+>     volume = real(num_data)/1.0e3_dp * spacing**3.0_dp
+>     write(*,'('' Volume equivalent = '',f7.2,'' mL'')') volume
+>          
+diff -r src/lib/surface_fitting.f90 new_fitting_src/lib/surface_fitting.f90
+162a163
+>   
+962a964
+>                 !if(fix_bcs(ny)) fit_soln(1,nv,j,node_2) = node_xyz_2d(1,nv,j,node_2)
+1856a1859
+>   
+1925d1927
+<        
+2003a2006
+> 
+2226a2230,2233
+>        !if(nd.eq.6864)then
+>        !WRITE(*,'('' >>WARNING!!! Iteration in CLOS21 has not converged'')')
+>        !WRITE(*,'(14X,''Estimate of error magnitude in xi:'',D9.2,''.'')') W*V1
+>     !endif
+Only in new_fitting_src/lib/: surface_fitting.f90~
