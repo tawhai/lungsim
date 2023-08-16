@@ -172,8 +172,7 @@ contains
 !
 !###################################################################################
 !
-  subroutine make_data_grid_c(surface_elems_len, surface_elems, offset, spacing, &
-       filename, filename_len, groupname, groupname_len)&
+  subroutine make_data_grid_c(surface_elems_len, surface_elems, num_target, offset, spacing)&
  bind(C, name="make_data_grid_c")
     
     use arrays,only: dp
@@ -185,16 +184,10 @@ contains
 
     integer,intent(in) :: surface_elems_len
     integer,intent(in) :: surface_elems(surface_elems_len)
+    integer,intent(in) :: num_target
     real(dp),intent(in) :: offset, spacing
-    integer,intent(in) :: filename_len, groupname_len
-    type(c_ptr), value, intent(in) :: filename, groupname
-    character(len=MAX_FILENAME_LEN) :: filename_f
-    character(len=MAX_STRING_LEN) :: groupname_f
 
-    call strncpy(filename_f, filename, filename_len)
-    call strncpy(groupname_f, groupname, groupname_len)
-
-    call make_data_grid(surface_elems, offset, spacing, filename_f, groupname_f)
+    call make_data_grid(surface_elems, num_target, offset, spacing)
 
   end subroutine make_data_grid_c
 

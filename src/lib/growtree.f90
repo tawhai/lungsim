@@ -764,7 +764,7 @@ contains
     use mesh_utilities,only: get_local_elem_2d
 
     integer,intent(in)  :: surface_elems(:)         ! list of surface elements defining the host region
-    integer,intent(in)  :: global_parent_ne(:)      ! global stem branch that supplies 'parents' to grow from
+    integer,intent(in)  :: global_parent_ne         ! global stem branch that supplies 'parents' to grow from
     real(dp),intent(in) :: angle_max                ! maximum branch angle with parent; in degrees
     real(dp),intent(in) :: angle_min                ! minimum branch angle with parent; in degrees
     real(dp),intent(in) :: branch_fraction          ! fraction of distance (to COFM) to branch
@@ -792,7 +792,7 @@ contains
 
 
 !!! get the local element number (parent_ne) for global element number (global_parent_ne)
-    parent_ne = get_local_elem_1d(global_parent_ne(0))
+    parent_ne = get_local_elem_1d(global_parent_ne)
     
 !!! allocate temporary arrays
     allocate(parent_list(num_elems))
@@ -1117,9 +1117,11 @@ contains
           ! Copy the temporary list of branches to local_parent. These become the
           ! parent elements for the next branching
           local_parent(1:num_next_parents) = local_parent_temp(1:num_next_parents)
-          ! Regroup the seed points with the closest current parent
-          call group_seeds_with_branch(map_seed_to_elem,num_next_parents,num_seeds_from_elem,&
-               num_terminal,local_parent,DISTANCE_LIMIT,to_export)
+          if(num_next_parents.ne.0)then
+             ! Regroup the seed points with the closest current parent
+             call group_seeds_with_branch(map_seed_to_elem,num_next_parents,num_seeds_from_elem,&
+                  num_terminal,local_parent,DISTANCE_LIMIT,to_export)
+          endif
 
        enddo ! while still parent branches
 
