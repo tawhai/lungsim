@@ -1430,7 +1430,7 @@ contains
     integer :: i,j,k,ncount,num_data_estimate
     integer,allocatable :: elem_list(:)
     real(dp) :: cofm1(3),cofm2(3),boxrange(3),data_err,max_bound(3),min_bound(3), &
-         scale_mesh,spacing,volume
+         scale_mesh,spacing,spacing_scale,volume
     character(len=60) :: sub_name
     
     ! --------------------------------------------------------------------------
@@ -1447,6 +1447,8 @@ contains
        call triangles_from_surface(elem_list)
     endif
 
+    volume = volume_internal_to_surface(triangle, vertex_xyz)
+    write(*,*) 'volume before',volume
     scale_mesh = 1.0_dp-(offset/100.0_dp)
     cofm1 = sum(vertex_xyz,dim=2)/num_vertices
     forall (i = 1:num_vertices) vertex_xyz(1:3,i) = &
@@ -1455,8 +1457,9 @@ contains
     forall (i = 1:num_vertices) vertex_xyz(1:3,i) = &
          vertex_xyz(1:3,i) - (cofm2(1:3)-cofm1(1:3))
 
+    volume = volume_internal_to_surface(triangle, vertex_xyz)
+    write(*,*) 'volume after',volume
     if(num_target.gt.0)then
-       volume = volume_internal_to_surface(triangle, vertex_xyz)
        spacing = (volume/real(num_target))**(1.0/3.0)
     else
        spacing = spacing0
@@ -1477,14 +1480,16 @@ contains
     ncount = 0
 
     if(num_target.gt.0)then ! only iterate through when a target is set
-       do while(abs(data_err).gt.0.01_dp.and.ncount.lt.10) ! allowing 1% error
+       do while(abs(data_err).gt.0.01_dp.and.ncount.lt.20) ! allowing 1% error
           call make_grid(num_data,num_data_estimate,max_bound,min_bound,spacing)
           data_err = real(num_target-num_data)/real(num_target)
           if(num_target.gt.num_data)then
-             spacing = spacing * 0.99_dp
+             spacing_scale = max(0.95_dp, 1.0_dp - data_err**2.0_dp)
           else
-             spacing = spacing * 1.01_dp
+             spacing_scale = min(1.05_dp, 1.0_dp + abs(data_err)**2.0_dp)
           endif
+          spacing = spacing * spacing_scale
+          write(*,*) ncount,spacing,num_target,num_data,data_err,spacing_scale
           ncount = ncount + 1
        enddo
     else ! just do once for a given spacing
