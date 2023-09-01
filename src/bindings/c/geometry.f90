@@ -386,9 +386,9 @@ contains
 !###################################################################################
 !
 !>*scale_radius:
-  subroutine scale_radius_below2_c(ne_centre, radius, scale_factor) bind(C, name="scale_radius_below2_c")
+  subroutine scale_radius_sphere_c(ne_centre, radius, scale_factor) bind(C, name="scale_radius_sphere_c")
 
-    use geometry, only: scale_radius_below2
+    use geometry, only: scale_radius_sphere
     use arrays, only: dp
     implicit none
 
@@ -397,12 +397,12 @@ contains
     real(dp),intent(in) :: radius, scale_factor
 
 #if defined _WIN32 && defined __INTEL_COMPILER
-    call so_scale_radius_below2(ne_centre, radius, scale_factor)
+    call so_scale_radius_sphere(ne_centre, radius, scale_factor)
 #else
-    call scale_radius_below2(ne_centre, radius, scale_factor)
+    call scale_radius_sphere(ne_centre, radius, scale_factor)
 #endif
 
-  end subroutine scale_radius_below2_c
+  end subroutine scale_radius_sphere_c
 
 !###################################################################################
 !
@@ -425,27 +425,6 @@ contains
 #endif
 
   end subroutine scale_radius_list_c
-
-!###################################################################################
-!
-!>*scale_radius:
-  subroutine scale_radius_sphere_c(ne_centre, radius, scale_factor) bind(C, name="scale_radius_sphere_c")
-
-    use geometry, only: scale_radius_sphere
-    use arrays, only: dp
-    implicit none
-
-    !     Parameter List
-    integer,intent(in) :: ne_centre
-    real(dp),intent(in) :: radius, scale_factor
-
-#if defined _WIN32 && defined __INTEL_COMPILER
-    call so_scale_radius_sphere(ne_centre, radius, scale_factor)
-#else
-    call scale_radius_sphere(ne_centre, radius, scale_factor)
-#endif
-
-  end subroutine scale_radius_sphere_c
 
 !###################################################################################
 !

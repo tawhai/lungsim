@@ -47,9 +47,8 @@ module geometry
   public make_2d_vessel_from_1d
   public reallocate_node_elem_arrays
   public scale_radius_below
-  public scale_radius_below2
-  public scale_radius_list
   public scale_radius_sphere
+  public scale_radius_list
   public set_initial_volume
   public triangles_from_surface
   public volume_of_mesh
@@ -3124,7 +3123,7 @@ contains
     
 !!!#############################################################################
   
-  subroutine scale_radius_below2(ne_centre, radius, scale_factor)
+  subroutine scale_radius_sphere(ne_centre, radius, scale_factor)
 
     integer,intent(in) :: ne_centre
     real(dp),intent(in) :: radius, scale_factor
@@ -3159,59 +3158,7 @@ contains
           templist(num_temp) = ne
        endif
     enddo
-    
-    do i = 1, count(templist.ne.0)
-       ne = templist(i)
-       elem_field(ne_radius,ne) = elem_field(ne_radius,ne) * scale_factor
-    enddo
 
-    deallocate(templist)
-    
-    call enter_exit(sub_name,2)
-
-  end subroutine scale_radius_below2
-    
-!!!#############################################################################
-  
-  subroutine scale_radius_sphere(ne_centre, radius, scale_factor)
-
-    integer,intent(in) :: ne_centre
-    real(dp),intent(in) :: radius, scale_factor
-
-    integer :: i,ne,np1,np2,num_temp
-    integer,allocatable :: templist(:)
-    real(dp) :: centre(3), distance,elem_centre(3)
-
-    character(len=60) :: sub_name
-   
-    ! --------------------------------------------------------------------------
-    write(*,*) ne_centre, radius, scale_factor
-    
-    sub_name = 'scale_radius_sphere'
-    call enter_exit(sub_name,1)
-    write(*,*) 'here1'
-    allocate(templist(num_elems))
-    write(*,*) 'here2'
-    np1 = elem_nodes(1,ne_centre)
-    np2 = elem_nodes(2,ne_centre)
-    write(*,*) 'centre',ne_centre,np1,np2
-    write(*,*) node_xyz(np1,:)
-    write(*,*) node_xyz(np2,:)
-    centre(:) = 0.5_dp * (node_xyz(np1,:) + node_xyz(np2,:))
-    num_temp = 0
-
-    do i = 1, num_elems
-       ne = elems(i)
-       np1 = elem_nodes(1,ne)
-       np2 = elem_nodes(2,ne)
-       elem_centre(:) = 0.5_dp * (node_xyz(np1,:) + node_xyz(np2,:))
-       distance = distance_between_points(centre, elem_centre)
-       if(distance .le. radius)then
-          num_temp = num_temp + 1
-          templist(num_temp) = ne
-       endif
-    enddo
-    
     do i = 1, count(templist.ne.0)
        ne = templist(i)
        elem_field(ne_radius,ne) = elem_field(ne_radius,ne) * scale_factor
