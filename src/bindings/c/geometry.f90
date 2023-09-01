@@ -364,6 +364,91 @@ contains
 
 !###################################################################################
 !
+!>*scale_radius:
+  subroutine scale_radius_below_c(ne_parent, scale_factor) bind(C, name="scale_radius_below_c")
+
+    use geometry, only: scale_radius_below
+    use arrays, only: dp
+    implicit none
+
+    !     Parameter List
+    integer,intent(in) :: ne_parent
+    real(dp),intent(in) :: scale_factor
+
+#if defined _WIN32 && defined __INTEL_COMPILER
+    call so_scale_radius_below(ne_parent, scale_factor)
+#else
+    call scale_radius_below(ne_parent, scale_factor)
+#endif
+
+  end subroutine scale_radius_below_c
+
+!###################################################################################
+!
+!>*scale_radius:
+  subroutine scale_radius_below2_c(ne_centre, radius, scale_factor) bind(C, name="scale_radius_below2_c")
+
+    use geometry, only: scale_radius_below2
+    use arrays, only: dp
+    implicit none
+
+    !     Parameter List
+    integer,intent(in) :: ne_centre
+    real(dp),intent(in) :: radius, scale_factor
+
+#if defined _WIN32 && defined __INTEL_COMPILER
+    call so_scale_radius_below2(ne_centre, radius, scale_factor)
+#else
+    call scale_radius_below2(ne_centre, radius, scale_factor)
+#endif
+
+  end subroutine scale_radius_below2_c
+
+!###################################################################################
+!
+!>*scale_radius:
+  subroutine scale_radius_list_c(elemlist, elemlist_len, scale_factor) bind(C, name="scale_radius_list_c")
+
+    use geometry, only: scale_radius_list
+    use arrays, only: dp
+    implicit none
+
+    !     Parameter List
+    integer,intent(in) :: elemlist_len
+    integer,intent(in) :: elemlist(elemlist_len)
+    real(dp),intent(in) :: scale_factor
+
+#if defined _WIN32 && defined __INTEL_COMPILER
+    call so_scale_radius_list(elemlist, scale_factor)
+#else
+    call scale_radius_list(elemlist, scale_factor)
+#endif
+
+  end subroutine scale_radius_list_c
+
+!###################################################################################
+!
+!>*scale_radius:
+  subroutine scale_radius_sphere_c(ne_centre, radius, scale_factor) bind(C, name="scale_radius_sphere_c")
+
+    use geometry, only: scale_radius_sphere
+    use arrays, only: dp
+    implicit none
+
+    !     Parameter List
+    integer,intent(in) :: ne_centre
+    real(dp),intent(in) :: radius, scale_factor
+
+#if defined _WIN32 && defined __INTEL_COMPILER
+    call so_scale_radius_sphere(ne_centre, radius, scale_factor)
+#else
+    call scale_radius_sphere(ne_centre, radius, scale_factor)
+#endif
+
+  end subroutine scale_radius_sphere_c
+
+!###################################################################################
+!
 !>*set_initial_volume:* assigns a volume to terminal units appended on a tree structure
 !>based on an assumption of a linear gradient in the gravitational direction with max
 !> min and COV values defined.

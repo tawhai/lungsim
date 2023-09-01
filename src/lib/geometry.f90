@@ -46,6 +46,10 @@ module geometry
   public make_data_grid
   public make_2d_vessel_from_1d
   public reallocate_node_elem_arrays
+  public scale_radius_below
+  public scale_radius_below2
+  public scale_radius_list
+  public scale_radius_sphere
   public set_initial_volume
   public triangles_from_surface
   public volume_of_mesh
@@ -3062,6 +3066,164 @@ contains
   end subroutine evaluate_ordering
 
 !!!#############################################################################
+  
+  subroutine scale_radius_list(element_list, scale_factor)
+
+    integer,intent(in) :: element_list(:)
+    real(dp),intent(in) :: scale_factor
+
+    integer :: i,ne,ne_local
+
+    character(len=60) :: sub_name
+   
+    ! --------------------------------------------------------------------------
+    
+    sub_name = 'scale_radius_list'
+    call enter_exit(sub_name,1)
+
+    do i = 1, count(element_list.ne.0)
+       ne = element_list(i)
+       ne_local = get_local_elem_1d(ne)
+       elem_field(ne_radius,ne_local) = elem_field(ne_radius,ne_local) * scale_factor
+    enddo
+    
+    call enter_exit(sub_name,2)
+
+  end subroutine scale_radius_list
+    
+!!!#############################################################################
+  
+  subroutine scale_radius_below(ne_parent, scale_factor)
+
+    integer,intent(in) :: ne_parent
+    real(dp),intent(in) :: scale_factor
+
+    integer :: i,ne
+    integer,allocatable :: templist(:)
+
+    character(len=60) :: sub_name
+   
+    ! --------------------------------------------------------------------------
+    
+    sub_name = 'scale_radius_below'
+    call enter_exit(sub_name,1)
+
+    allocate(templist(num_elems))
+    call group_elem_by_parent(ne_parent,templist)
+    
+    do i = 1, count(templist.ne.0)
+       ne = templist(i)
+       elem_field(ne_radius,ne) = elem_field(ne_radius,ne) * scale_factor
+    enddo
+
+    deallocate(templist)
+    
+    call enter_exit(sub_name,2)
+
+  end subroutine scale_radius_below
+    
+!!!#############################################################################
+  
+  subroutine scale_radius_below2(ne_centre, radius, scale_factor)
+
+    integer,intent(in) :: ne_centre
+    real(dp),intent(in) :: radius, scale_factor
+
+    integer :: i,ne,np1,np2,num_temp
+    integer,allocatable :: templist(:)
+    real(dp) :: centre(3), distance,elem_centre(3)
+
+    character(len=60) :: sub_name
+   
+    ! --------------------------------------------------------------------------
+    
+    sub_name = 'scale_radius_sphere'
+    call enter_exit(sub_name,1)
+    
+    allocate(templist(num_elems))
+    
+    np1 = elem_nodes(1,ne_centre)
+    np2 = elem_nodes(2,ne_centre)
+
+    centre(:) = 0.5_dp * (node_xyz(:,np1) + node_xyz(:,np2))
+    num_temp = 0
+
+    do i = 1, num_elems
+       ne = elems(i)
+       np1 = elem_nodes(1,ne)
+       np2 = elem_nodes(2,ne)
+       elem_centre(:) = 0.5_dp * (node_xyz(:,np1) + node_xyz(:,np2))
+       distance = distance_between_points(centre, elem_centre)
+       if(distance .le. radius)then
+          num_temp = num_temp + 1
+          templist(num_temp) = ne
+       endif
+    enddo
+    
+    do i = 1, count(templist.ne.0)
+       ne = templist(i)
+       elem_field(ne_radius,ne) = elem_field(ne_radius,ne) * scale_factor
+    enddo
+
+    deallocate(templist)
+    
+    call enter_exit(sub_name,2)
+
+  end subroutine scale_radius_below2
+    
+!!!#############################################################################
+  
+  subroutine scale_radius_sphere(ne_centre, radius, scale_factor)
+
+    integer,intent(in) :: ne_centre
+    real(dp),intent(in) :: radius, scale_factor
+
+    integer :: i,ne,np1,np2,num_temp
+    integer,allocatable :: templist(:)
+    real(dp) :: centre(3), distance,elem_centre(3)
+
+    character(len=60) :: sub_name
+   
+    ! --------------------------------------------------------------------------
+    write(*,*) ne_centre, radius, scale_factor
+    
+    sub_name = 'scale_radius_sphere'
+    call enter_exit(sub_name,1)
+    write(*,*) 'here1'
+    allocate(templist(num_elems))
+    write(*,*) 'here2'
+    np1 = elem_nodes(1,ne_centre)
+    np2 = elem_nodes(2,ne_centre)
+    write(*,*) 'centre',ne_centre,np1,np2
+    write(*,*) node_xyz(np1,:)
+    write(*,*) node_xyz(np2,:)
+    centre(:) = 0.5_dp * (node_xyz(np1,:) + node_xyz(np2,:))
+    num_temp = 0
+
+    do i = 1, num_elems
+       ne = elems(i)
+       np1 = elem_nodes(1,ne)
+       np2 = elem_nodes(2,ne)
+       elem_centre(:) = 0.5_dp * (node_xyz(np1,:) + node_xyz(np2,:))
+       distance = distance_between_points(centre, elem_centre)
+       if(distance .le. radius)then
+          num_temp = num_temp + 1
+          templist(num_temp) = ne
+       endif
+    enddo
+    
+    do i = 1, count(templist.ne.0)
+       ne = templist(i)
+       elem_field(ne_radius,ne) = elem_field(ne_radius,ne) * scale_factor
+    enddo
+
+    deallocate(templist)
+    
+    call enter_exit(sub_name,2)
+
+  end subroutine scale_radius_sphere
+    
+!!!#############################################################################
 
   subroutine set_initial_volume(Gdirn,COV,total_volume,Rmax,Rmin)
     !*set_initial_volume:* assigns a volume to terminal units appended on a
@@ -3132,13 +3294,13 @@ contains
     endif
 
     unit_field(nu_vt,1:num_units) = 0.0_dp
-    
+
     ! correct unit volumes such that total volume is exactly as specified
     call volume_of_mesh(volume_estimate,volume_of_tree)
     factor_adjust = (total_volume-volume_of_tree)/(volume_estimate-volume_of_tree)
     unit_field(nu_vol,1:num_units) = unit_field(nu_vol,1:num_units)*factor_adjust
     call volume_of_mesh(volume_estimate,volume_of_tree)
-    
+     
     write(*,'('' Number of elements is '',I5)') num_elems
     write(*,'('' Initial volume is '',F6.2,'' L'')') total_volume/1.0e+6_dp
     write(*,'('' Deadspace volume is '',F6.1,'' mL'')') volume_of_tree/1.0e+3_dp

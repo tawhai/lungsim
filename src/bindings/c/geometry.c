@@ -22,6 +22,10 @@ void define_rad_from_geom_c(const char *order_system, int *order_system_len, dou
                             const char *group_type, int *group_type_len, const char *group_options, int *group_options_len);
 void element_connectivity_1d_c(void);
 void evaluate_ordering_c(void);
+void scale_radius_below_c(int *ne_parent, double *scale_factor);
+void scale_radius_below2_c(int *ne_parent, double *radius, double *scale_factor);
+void scale_radius_list_c(int *elemlist_len, int elemlist[], double *scale_factor);
+void scale_radius_sphere_c(int *ne_centre, double *radius, double *scale_factor);
 void set_initial_volume_c(int *Gdirn, double *COV, double *total_volume, double *Rmax, double *Rmin);
 void volume_of_mesh_c(double *volume_model, double *volume_tree);
 void write_elem_geometry_2d_c(const char *ELEMFILE, int *filename_len);
@@ -131,6 +135,26 @@ void element_connectivity_1d()
 void evaluate_ordering()
 {
   evaluate_ordering_c();
+}
+
+void scale_radius_below(int ne_parent, double scale_factor)
+{
+  scale_radius_below_c(&ne_parent, &scale_factor);
+}
+
+void scale_radius_below2(int ne_parent, double radius, double scale_factor)
+{
+  scale_radius_below2_c(&ne_parent, &radius, &scale_factor);
+}
+
+void scale_radius_list(int elemlist_len, int elemlist[], double scale_factor)
+{
+  scale_radius_list_c(elemlist, &elemlist_len, &scale_factor);
+}
+
+void scale_radius_sphere(int ne_centre, double radius, double scale_factor)
+{
+  scale_radius_sphere_c(ne_centre, &radius, &scale_factor);
 }
 
 void set_initial_volume(int Gdirn, double COV, double total_volume, double Rmax, double Rmin)

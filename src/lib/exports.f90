@@ -638,10 +638,17 @@ contains
 !!! Local Variables
     integer :: len_end,ne,nj,NOLIST,np,np_last,VALUE_INDEX
     logical :: FIRST_NODE
+    character(len=300) :: writefile
 
+    if(index(EXNODEFILE, ".exnode")> 0) then !full filename is given
+       writefile = EXNODEFILE
+    else ! need to append the correct filename extension
+       writefile = trim(EXNODEFILE)//'.exnode'
+    endif
+    
     len_end=len_trim(name)
     if(num_units.GT.0) THEN
-       open(10, file=EXNODEFILE, status='replace')
+       open(10, file=writefile, status='replace')
        !**     write the group name
        write(10,'( '' Group name: '',A)') name(:len_end)
        FIRST_NODE=.TRUE.

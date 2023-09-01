@@ -128,6 +128,7 @@ contains
     pptrans = sum(unit_field(nu_pe,1:num_units))/num_units
 
     chestwall_restvol = init_vol + chest_wall_compliance * (-ppl_current)
+    
     Pcw = (chestwall_restvol - init_vol)/chest_wall_compliance
 !!!MHT!     Pcw_frc = Pcw
     write(*,'('' Chest wall RV = '',F8.3,'' L'')') chestwall_restvol/1.0e+6_dp
