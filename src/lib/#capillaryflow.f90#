@@ -65,7 +65,7 @@ contains
 !###  UNITS. The units that are used here are m.
 
     integer, intent(in) :: ne
-    real(dp), intent(inout) :: LPM_FUNC
+x2    real(dp), intent(inout) :: LPM_FUNC
     real(dp):: Pin,Pout,Q01,R_in,R_out,x,y,z,Lin,Lout,Ppl
     logical, intent(in) :: OUTPUT_PERFUSION
 
@@ -104,8 +104,7 @@ contains
       DO i=1,cap_param%num_symm_gen
          sheet_number=sheet_number+2.d0**i
       ENDDO
-      !area=cap_param%total_cap_area/(sheet_number*num_units) !m^2
-      area=cap_param%total_cap_area/(sheet_number*16384) !m^2
+      area=cap_param%total_cap_area/(sheet_number*num_units) !m^2
 !
 !!  ---CALL THE FUNCTIONS THAT CALCULATE THE FLOW ACROSS THE LADDER FOR A GIVEN PRESSURE DROP--
       call evaluate_ladder(ne,NonZeros,MatrixSize,submatrixsize,ngen,&
@@ -314,7 +313,7 @@ contains
          ne,x,y,z,gen,Pin,Pin_sheet,Pout_sheet,Pout,Qtot*1.d9,&
          Qgen*1.d9,Q_c*1.d9,(Hart-Hven)*1.d6,SHEET_RES/1000.d0**3.d0,&
          Rtot/1000.d0**3.d0,RBC_tt,Hart*1.d6,Hven*1.d6,zone,&
-         !R_upstream,R_downstream,&
+         R_upstream,R_downstream,&
          (Hart/2.d0+Hven/2.d0)*area_new*1.d9*(2.d0**gen),&
          area_new*1.d6*(2.d0**gen),recruited
 

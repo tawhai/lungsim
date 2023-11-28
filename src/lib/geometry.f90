@@ -297,6 +297,14 @@ contains
        ne_m=elems(noelem)
        elem_field(ne_group,ne_m)=0.0_dp!ARTERY
        elems(ne0+noelem)=ne
+       elem_field(ne_radius,ne) = elem_field(ne_radius,ne_m) ! copy artery to vein
+       if(ne_vol.gt.0)then
+          elem_field(ne_vol,ne) = elem_field(ne_vol,ne_m)
+       endif
+       if(ne_radius_in.gt.0)then
+          elem_field(ne_radius_in,ne) = elem_field(ne_radius_in,ne_m)
+          elem_field(ne_radius_out,ne) = elem_field(ne_radius_out,ne_m)
+       endif
        if(.NOT.REVERSE)then
           elem_nodes(1,ne)=np_map(elem_nodes(1,ne_m))
           elem_nodes(2,ne)=np_map(elem_nodes(2,ne_m))

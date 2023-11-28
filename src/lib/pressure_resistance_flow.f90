@@ -799,8 +799,12 @@ subroutine calc_sparse_1dtree(bc_type,density,FIX,grav_vect,mesh_dof,depvar_at_e
                     flow_term = 0
                     if(np.EQ.elem_nodes(2,ne2))then !end node
                         flow_term = 1.0_dp
-                    elseif(np.EQ.elem_nodes(1,ne2))then !start node
-                        flow_term = -1.0_dp
+                     elseif(np.EQ.elem_nodes(1,ne2))then !start node
+                        if(np.eq.1)then
+                           flow_term = -1.0_dp
+                        else
+                           flow_term = -2.0_dp
+                        endif
                     endif
                     if(FIX(depvar))then
                         RHS(nzz_row)=-prq_solution(depvar,1)*flow_term

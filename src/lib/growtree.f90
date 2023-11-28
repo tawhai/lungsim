@@ -825,11 +825,9 @@ contains
     do N=1,num_next_parents
        ne_min=local_parent(N)
        if(num_seeds_from_elem(ne_min).eq.0)then !find closest point to end node
-          write(*,*) 'zero points for ne=',ne_min
+          write(*,*) 'WARNING: zero points for ne=',ne_min
        else if(num_seeds_from_elem(ne_min).eq.1)then
-          write(*,*) 'one point for ne=',ne_min
-       else
-          write(*,*) 'number of seeds is',num_seeds_from_elem(ne_min),' from element', ne_min
+          write(*,*) 'WARNING: only one point for ne=',ne_min
        endif !num_seeds_from_elem
     enddo !N
 
