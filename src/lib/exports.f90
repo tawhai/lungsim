@@ -803,7 +803,7 @@ contains
           !*** Write the field information
           VALUE_INDEX=1
           if(FIRST_NODE)THEN
-             write(10,'( '' #Fields=5'' )')
+             write(10,'( '' #Fields=6'' )')
              write(10,'('' 1) coordinates, coordinate, rectangular cartesian, #Components=3'')')
              do nj=1,3
                 if(nj.eq.1) write(10,'(2X,''x.  '')',advance="no")
@@ -813,42 +813,37 @@ contains
                 VALUE_INDEX=VALUE_INDEX+1
              enddo
              !Ventilation (tidal volume/insp time)
-             write(10,'('' 2) flow, field, rectangular cartesian, #Components=1'')')
+             write(10,'('' 2) norm_tidal, field, rectangular cartesian, #Components=1'')')
              write(10,'(2X,''1.  '')',advance="no")
              write(10,'(''Value index='',I1,'', #Derivatives='',I1)',advance="yes") VALUE_INDEX,0
-             !VALUE_INDEX=VALUE_INDEX+1
+             VALUE_INDEX=VALUE_INDEX+1
              !Volume
-             !write(10,'('' 3) volume, field, rectangular cartesian, #Components=1'')')
-             !write(10,'(2X,''1.  '')',advance="no")
-             !write(10,'(''Value index='',I1,'', #Derivatives='',I1)',advance="yes") VALUE_INDEX,0
-             !VALUE_INDEX=VALUE_INDEX+1
-             !!Pressure
-             !write(10,'('' 4) pressure, field, rectangular cartesian, #Components=1'')')
-             !write(10,'(2X,''1.  '')',advance="no")
-             !write(10,'(''Value index='',I1,'', #Derivatives='',I1)',advance="yes") VALUE_INDEX,0
+             write(10,'('' 3) volume, field, rectangular cartesian, #Components=1'')')
+             write(10,'(2X,''1.  '')',advance="no")
+             write(10,'(''Value index='',I1,'', #Derivatives='',I1)',advance="yes") VALUE_INDEX,0
+             VALUE_INDEX=VALUE_INDEX+1
              !Compliance
-             write(10,'('' 5) compliance, field, rectangular cartesian, #Components=1'')')
+             write(10,'('' 4) compliance, field, rectangular cartesian, #Components=1'')')
              write(10,'(2X,''1.  '')',advance="no")
              write(10,'(''Value index='',I1,'', #Derivatives='',I1)',advance="yes") VALUE_INDEX,0
              VALUE_INDEX=VALUE_INDEX+1
              !Pleural pressure
-             write(10,'('' 6) pleural pressure, field, rectangular cartesian, #Components=1'')')
+             write(10,'('' 5) recoil_pressure, field, rectangular cartesian, #Components=1'')')
              write(10,'(2X,''1.  '')',advance="no")
              write(10,'(''Value index='',I1,'', #Derivatives='',I1)',advance="yes") VALUE_INDEX,0
              VALUE_INDEX=VALUE_INDEX+1
              !Tidal volume
-             write(10,'('' 7) tidal volume, field, rectangular cartesian, #Components=1'')')
+             write(10,'('' 6) tidal_volume, field, rectangular cartesian, #Components=1'')')
              write(10,'(2X,''1.  '')',advance="no")
              write(10,'(''Value index='',I1,'', #Derivatives='',I1)',advance="yes") VALUE_INDEX,0
           endif !FIRST_NODE
           !***      write the node
-          write(10,'(1X,''Node: '',I12)') np
+          write(10,'(1X,''Node: '',I12)') nodes(np)
           do nj=1,3
              write(10,'(2X,4(1X,F12.6))') (node_xyz(nj,np))      !Coordinates
           enddo !njj2
-          write(10,'(2X,4(1X,F12.6))') (unit_field(nu_vent,NOLIST)) !Ventilation
-          !write(10,'(2X,4(1X,F12.6))') (unit_field(nu_vol,nolist))   !Volume (end expiration)
-          !write(10,'(2X,4(1X,F12.6))') (unit_field(nu_press,nolist)) !Pressure
+          write(10,'(2X,4(1X,F12.6))') (unit_field(nu_vent,NOLIST))  !Tidal volume normalised to mean
+          write(10,'(2X,4(1X,F12.6))') (unit_field(nu_vol,nolist))   !Volume (end expiration)
           write(10,'(2X,4(1X,F12.6))') (unit_field(nu_comp,nolist))  !Compliance (end exp)
           write(10,'(2X,4(1X,F12.6))') (unit_field(nu_pe,nolist))    !Recoil pressure
           write(10,'(2X,4(1X,F12.6))') (unit_field(nu_vt,nolist))    !Tidal volume
@@ -909,7 +904,7 @@ contains
              write(10,'(''Value index='',I1,'', #Derivatives='',I1)',advance="yes") VALUE_INDEX,0
           endif !FIRST_NODE
           !***      write the node
-          write(10,'(1X,''Node: '',I12)') np
+          write(10,'(1X,''Node: '',I12)') nodes(np)
           do nj=1,3
              write(10,'(2X,4(1X,F12.6))') (node_xyz(nj,np))      !Coordinates
           enddo !njj2
@@ -982,7 +977,7 @@ contains
              write(10,'(''Value index='',I1,'', #Derivatives='',I1)',advance="yes") VALUE_INDEX,0
           endif !FIRST_NODE
           !***      write the node
-          write(10,'(1X,''Node: '',I12)') np
+          write(10,'(1X,''Node: '',I12)') nodes(np)
           do nj=1,3
              write(10,'(2X,4(1X,F12.6))') (node_xyz(nj,np))      !Coordinates
           enddo !njj2
@@ -1031,7 +1026,7 @@ contains
           write(10,'(''Value index='',I1,'', #Derivatives='',I1)',advance="yes") 1,0
        endif !FIRST_NODE
        !***      write the node
-       write(10,'(1X,''Node: '',I12)') np
+       write(10,'(1X,''Node: '',I12)') nodes(np)
        write(10,'(2X,2(1X,F12.6))') (node_field(nj_field,np))
        FIRST_NODE=.FALSE.
     enddo !num_nodes
@@ -1085,7 +1080,7 @@ contains
        write(10,'(1X,''Element: '',I12,'' 0 0'' )') ne
        !**               write the nodes
        write(10,'(3X,''Nodes:'' )')
-       write(10,'(4X,2(1X,I12))') elem_nodes(1,ne),elem_nodes(2,ne)
+       write(10,'(4X,2(1X,I12))') nodes(elem_nodes(1,ne)), nodes(elem_nodes(2,ne))
        !**                 write the scale factors
        write(10,'(3X,''Scale factors:'' )')
        write(10,'(4X,2(1X,E12.5))') 1.d0,1.d0

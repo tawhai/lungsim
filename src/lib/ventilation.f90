@@ -47,7 +47,7 @@ contains
     ! Local variables
     integer :: gdirn                  ! 1(x), 2(y), 3(z); upright lung (for our
     !                                   models) is z, supine is y.
-    integer :: iter_step,n,ne,num_brths,num_itns,nunit
+    integer :: i,iter_step,n,ne,num_brths,num_itns,nunit
     real(dp) :: chestwall_restvol     ! resting volume of chest wall
     real(dp) :: chest_wall_compliance ! constant compliance of chest wall
     real(dp) :: constrict             ! for applying uniform constriction
@@ -72,7 +72,7 @@ contains
     real(dp) :: undef                 ! the zero stress volume. undef < RV 
     real(dp) :: volume_target         ! the target tidal volume (mm^3)
 
-    real(dp) :: dpmus,dt,endtime,err_est,err_tol,FRC,init_vol,last_vol, &
+    real(dp) :: average_tidal,dpmus,dt,endtime,err_est,err_tol,FRC,init_vol,last_vol, &
          current_vol,Pcw,ppl_current,pptrans,prev_flow,ptrans_frc, &
          sum_dpmus,sum_dpmus_ei,time,totalc,Tpass,ttime,volume_tree,WOBe,WOBr, &
          WOBe_insp,WOBr_insp,WOB_insp
@@ -132,7 +132,7 @@ contains
     unit_field(nu_dpdt,1:num_units) = 0.0_dp
 
 !!! calculate the compliance of each tissue unit
-    call tissue_compliance(chest_wall_compliance,undef)
+    call tissue_compliance(undef)
     totalc = SUM(unit_field(nu_comp,1:num_units)) !the total model compliance
     call update_pleural_pressure(ppl_current) !calculate new pleural pressure
     pptrans=SUM(unit_field(nu_pe,1:num_units))/num_units
@@ -206,12 +206,16 @@ contains
        ne = units(nunit) !local element number
        elem_field(ne_Vdot,ne) = unit_field(nu_vt,nunit)
     enddo
-    unit_field(nu_vent,:) = unit_field(nu_vt,:)/(Tinsp+Texpn)
+
     call sum_elem_field_from_periphery(ne_Vdot)
     elem_field(ne_Vdot,1:num_elems) = &
          elem_field(ne_Vdot,1:num_elems)/elem_field(ne_Vdot,1)
 
-!    call export_terminal_solution(TERMINAL_EXNODEFILE,'terminals')
+!!! Highlight 'patchiness' or regions of similarity by calculating the flow per unit below
+    forall(i=1:num_elems) elem_field(ne_Vdot0,i) = elem_field(ne_Vdot,i)/dble(elem_units_below(i))
+    elem_field(ne_Vdot0,1:num_elems) = elem_field(ne_Vdot0,1:num_elems)/elem_field(ne_Vdot0,1)
+    average_tidal = sum(unit_field(nu_vt,:))/dble(elem_units_below(1))
+    unit_field(nu_vent,:) = unit_field(nu_vt,:)/average_tidal
 
     call enter_exit(sub_name,2)
 
@@ -290,7 +294,7 @@ contains
     call volume_of_mesh(current_vol,volume_tree) ! calculate mesh volume
     call update_elem_field(1.0_dp)
     call update_resistance  !update element lengths, volumes, resistances
-    call tissue_compliance(chest_wall_compliance,undef) ! unit compliances
+    call tissue_compliance(undef) ! unit compliances
     totalc = SUM(unit_field(nu_comp,1:num_units)) !the total model compliance
     call update_proximal_pressure ! pressure at proximal nodes of end branches
     call calculate_work(current_vol-init_vol,current_vol-last_vol,WOBe,WOBr, &
@@ -526,9 +530,9 @@ contains
 
 !!!#############################################################################
 
-  subroutine tissue_compliance(chest_wall_compliance,undef)
+  subroutine tissue_compliance(undef)
 
-    real(dp), intent(in) :: chest_wall_compliance,undef
+    real(dp), intent(in) :: undef
     ! Local variables
     integer :: ne,nunit
     real(dp),parameter :: a = 0.433_dp, b = -0.611_dp, cc = 2500.0_dp
@@ -553,9 +557,6 @@ contains
             *(lambda**2-1.0_dp)**2/lambda**2+(3.0_dp*a+b) &
             *(lambda**2+1.0_dp)/lambda**4)
        unit_field(nu_comp,nunit) = undef/unit_field(nu_comp,nunit) ! V/P
-       ! add the chest wall (proportionately) in parallel
-       unit_field(nu_comp,nunit) = 1.0_dp/(1.0_dp/unit_field(nu_comp,nunit)&
-            +1.0_dp/(chest_wall_compliance/dble(num_units)))
        !estimate an elastic recoil pressure for the unit
        unit_field(nu_pe,nunit) = cc/2.0_dp*(3.0_dp*a+b)*(lambda**2.0_dp &
             -1.0_dp)*exp_term/lambda
@@ -711,6 +712,7 @@ contains
        elem_field(ne_resist,ne) = resistance * zeta
        elem_field(ne_t_resist,ne) = elem_field(ne_resist,ne) + &
             elem_field(ne_t_resist,ne)
+
     enddo !noelem
     
     do ne = num_elems,1,-1
