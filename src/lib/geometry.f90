@@ -3026,6 +3026,107 @@ contains
 
 !!!#############################################################################
 
+  subroutine internal_mesh_reorder
+    !*internal_mesh_reorder:* reorder the mesh so that all elements and nodes are
+    ! sequential from the stem branches down
+
+    ! Local variables
+    integer :: count_elems,i,j,ne,nep,ne_old,num_branches,num_term_branches
+    integer,allocatable :: list_branches(:),list_term_branches(:),map_to_new(:), &
+         map_to_old(:),temp_elems(:),temp_elem_nodes(:,:),temp_elem_symmetry(:), &
+         temp_elem_units_below(:)
+    real(dp),allocatable :: temp_elem_direction(:,:),temp_elem_field(:,:)
+    logical,allocatable :: temp_expansile(:)
+    character(len=60) :: sub_name
+    
+    ! --------------------------------------------------------------------------
+    
+    sub_name = 'internal_mesh_reorder'
+    call enter_exit(sub_name,1)
+
+    allocate(list_branches(num_elems))
+    allocate(list_term_branches(num_elems))
+    allocate(map_to_new(num_elems))
+    allocate(map_to_old(num_elems))
+   
+    ! work through each successive generation, incrementing elements one by one
+    count_elems = 0
+    num_term_branches = 1
+    list_term_branches(1) = 1 ! this assumes that the first element is the stem! 
+    do while(num_term_branches.ne.0)
+       num_branches = num_term_branches ! temporary, to loop over
+       num_term_branches = 0 ! reset to zero and count for this generation
+       do i = 1,num_branches ! for each element in this generation
+          ne = list_term_branches(i)
+          count_elems = count_elems + 1
+          map_to_new(ne) = count_elems
+          map_to_old(count_elems) = ne
+          do j = 1,elem_cnct(1,0,ne) ! for each child
+             nep = elem_cnct(1,j,ne) ! child element number
+             ! check whether there are more elements in the same branch 
+             do while(elem_cnct(1,j,nep).eq.1.and.elem_symmetry(nep).eq.1)
+                count_elems = count_elems + 1
+                map_to_new(nep) = count_elems
+                map_to_old(count_elems) = nep
+                nep = elem_cnct(1,j,nep) ! next child branch
+             enddo
+             num_term_branches = num_term_branches + 1 ! increment number of new terminals
+             list_branches(num_term_branches) = nep ! add to list for next generation
+          enddo
+       enddo
+       list_term_branches = list_branches
+    enddo
+    deallocate(list_branches)
+    deallocate(list_term_branches)
+
+    allocate(temp_elems(num_elems))
+    allocate(temp_elem_nodes(2,num_elems))
+    allocate(temp_elem_symmetry(num_elems))
+    allocate(temp_elem_units_below(num_elems))
+    allocate(temp_elem_field(num_ne,num_elems))
+    allocate(temp_elem_direction(3,num_elems))
+    if(model_type.eq.'gas_mix') allocate(temp_expansile(num_elems))
+    
+    do ne = 1,num_elems ! for the ordered elements
+       ne_old = map_to_old(ne) ! the unordered element number
+       temp_elems(ne) = elems(ne_old) ! mapping to global
+       forall (i=1:2) temp_elem_nodes(i,ne) = elem_nodes(i,ne_old)
+       temp_elem_symmetry(ne) = elem_symmetry(ne_old)
+       temp_elem_units_below(ne) = elem_units_below(ne_old)
+       temp_elem_field(ne_length,ne) = elem_field(ne_length,ne)
+       forall(i=1:3) temp_elem_direction(i,ne) = elem_direction(i,ne_old)
+       if(model_type.eq.'gas_mix')then
+          temp_expansile(ne) = expansile(ne_old)
+       endif
+    enddo
+
+    deallocate(map_to_old)
+    deallocate(map_to_new)
+    
+    elems = temp_elems
+    elem_nodes = temp_elem_nodes
+    elem_symmetry = temp_elem_symmetry
+    elem_units_below = temp_elem_units_below
+    elem_field = temp_elem_field
+    elem_direction = temp_elem_direction
+    if(model_type.eq.'gas_mix') expansile = temp_expansile
+
+    deallocate(temp_elems)
+    deallocate(temp_elem_nodes)
+    deallocate(temp_elem_symmetry)
+    deallocate(temp_elem_units_below)
+    deallocate(temp_elem_field)
+    deallocate(temp_elem_direction)
+    if(model_type.eq.'gas_mix') deallocate(temp_expansile)
+
+    call element_connectivity_1d
+    
+    call enter_exit(sub_name,2)
+
+  end subroutine internal_mesh_reorder
+  
+!!!#############################################################################
+
   subroutine evaluate_ordering()
     !*evaluate_ordering:* calculates generations, Horsfield orders,
     ! Strahler orders for a given tree
