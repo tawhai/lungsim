@@ -3132,36 +3132,55 @@ contains
     ! Strahler orders for a given tree
 
     ! Local Variables
-    integer :: INLETS,ne,ne0,ne1,ne2,ne3,noelem2,np,np2,num_attach,n_children, &
-         n_generation,n_horsfield,OUTLETS,STRAHLER,STRAHLER_ADD,temp1
+    integer :: i,INLETS,j,ne,nep,ne0,ne1,ne2,ne3,noelem2,np,np2,num_attach,n_children, &
+         n_generation,n_horsfield,num_branches,num_term_branches,OUTLETS, &
+         STRAHLER,STRAHLER_ADD,temp1
+    integer,allocatable :: list_branches(:), list_term_branches(:)
     LOGICAL :: DISCONNECT,DUPLICATE,problem
     character(len=60) :: sub_name
-    
+
     ! --------------------------------------------------------------------------
-    
+
     sub_name = 'evaluate_ordering'
     call enter_exit(sub_name,1)
 
     problem = .false.
+    allocate(list_branches(num_elems))
+    allocate(list_term_branches(num_elems))
     
 !!! Calculate branch generations
     elem_ordrs = 0
     maxgen=1
-    do ne=1,num_elems
-       ne0=elem_cnct(-1,1,ne) !parent
-       if(ne0.NE.0)THEN
-          n_generation=elem_ordrs(1,ne0) !parent generation
-          if(elem_cnct(1,0,ne0).EQ.1)THEN !single daughter
-             elem_ordrs(1,ne)=n_generation + (elem_symmetry(ne)-1)
-          else if(elem_cnct(1,0,ne0).GE.2)THEN
-             elem_ordrs(1,ne)=n_generation+1
-          endif
-       else
-          elem_ordrs(1,ne)=1 !generation 1
-       endif
-       maxgen=max(maxgen,elem_ordrs(1,ne))
-    enddo !noelem
-
+!!! Calculate branch generations
+    ! start from the first element that is read in (assuming it is the stem; could be wrong!)
+    num_term_branches = 1
+    list_term_branches(1) = 1
+    n_generation = 0
+    ! work through each successive generation, incrementing one by one
+    ! using this approach to account for parent elements that have lower element number than child
+    do while(num_term_branches.ne.0)
+       n_generation = n_generation + 1
+       num_branches = num_term_branches ! temporary, to loop over
+       num_term_branches = 0 ! reset to zero and count for this generation
+       do i = 1,num_branches ! for each element in this generation
+          ne = list_term_branches(i)
+          elem_ordrs(1,ne) = n_generation
+          do j = 1,elem_cnct(1,0,ne) ! for each child
+             nep = elem_cnct(1,j,ne) ! child element number
+             ! check whether there are more elements in the same branch 
+             do while(elem_cnct(1,j,nep).eq.1.and.elem_symmetry(nep).eq.1)
+                elem_ordrs(1,nep) = elem_ordrs(1,ne) ! same generation as parent because in the same branch
+                nep = elem_cnct(1,j,nep) ! next child branch
+             enddo
+             num_term_branches = num_term_branches + 1 ! increment number of new terminals
+             list_branches(num_term_branches) = nep ! add to list for next generation
+          enddo
+       enddo
+       list_term_branches = list_branches
+    enddo
+    deallocate(list_branches)
+    deallocate(list_term_branches)
+   
 !!! Calculate the branch orders
     do ne=num_elems,1,-1
        n_horsfield=MAX(elem_ordrs(2,ne),1)
@@ -3195,7 +3214,7 @@ contains
        elem_ordrs(2,ne)=n_horsfield !store the Horsfield order
        elem_ordrs(3,ne)=STRAHLER+STRAHLER_ADD !Strahler order
     enddo !noelem
-    
+
 !!! Check for disconnected nodes and number of inlets and outlets
     DUPLICATE=.FALSE.
     do ne=1,num_elems
@@ -3209,7 +3228,7 @@ contains
           read(*,*)
        endif
     enddo
-    
+
     DISCONNECT=.FALSE.
     INLETS=0
     OUTLETS=0
@@ -3266,7 +3285,7 @@ contains
     endif
 
     call enter_exit(sub_name,2)
-    
+
   end subroutine evaluate_ordering
 
 !!!#############################################################################
