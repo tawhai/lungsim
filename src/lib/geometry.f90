@@ -295,31 +295,30 @@ contains
 
     do noelem=1,num_elems
        ne=ne_global+noelem
-       elem_field(ne_group,ne)=2.0_dp!VEIN
-       ne_m=elems(noelem)
-       elem_field(ne_group,ne_m)=0.0_dp!ARTERY
+       elem_field(ne_group,ne0+noelem)=2.0_dp!VEIN
+       elem_field(ne_group,noelem)=0.0_dp!ARTERY
        elems(ne0+noelem)=ne
        if(.NOT.REVERSE)then
-          elem_nodes(1,ne)=np_map(elem_nodes(1,ne_m))
-          elem_nodes(2,ne)=np_map(elem_nodes(2,ne_m))
-          elem_cnct(1,0,ne)=elem_cnct(1,0,ne_m)!The numberdownstream are the number downstream
-          elem_cnct(-1,0,ne)=elem_cnct(-1,0,ne_m)
+          elem_nodes(1,ne)=np_map(elem_nodes(1,noelem))
+          elem_nodes(2,ne)=np_map(elem_nodes(2,noelem))
+          elem_cnct(1,0,ne)=elem_cnct(1,0,noelem)!The numberdownstream are the number downstream
+          elem_cnct(-1,0,ne)=elem_cnct(-1,0,noelem)
           do n=1,elem_cnct(1,0,ne)
-             elem_cnct(1,n,ne)=elem_cnct(1,n,ne_m)+ne0
+             elem_cnct(1,n,ne)=elem_cnct(1,n,noelem)+ne0
           enddo
           do n=1,elem_cnct(-1,0,ne)
-             elem_cnct(-1,n,ne)=elem_cnct(-1,n,ne_m)+ne0
+             elem_cnct(-1,n,ne)=elem_cnct(-1,n,noelem)+ne0
           enddo
        else
-          elem_nodes(1,ne)=np_map(elem_nodes(2,ne_m))
-          elem_nodes(2,ne)=np_map(elem_nodes(1,ne_m))
-          elem_cnct(-1,0,ne)=elem_cnct(1,0,ne_m) !The number upstream are the number downstream
-          elem_cnct(1,0,ne)=elem_cnct(-1,0,ne_m)!The number downstream are the number upstream
+          elem_nodes(1,ne)=np_map(elem_nodes(2,noelem))
+          elem_nodes(2,ne)=np_map(elem_nodes(1,noelem))
+          elem_cnct(-1,0,ne)=elem_cnct(1,0,noelem) !The number upstream are the number downstream
+          elem_cnct(1,0,ne)=elem_cnct(-1,0,noelem)!The number downstream are the number upstream
           do n=1,elem_cnct(1,0,ne)
-             elem_cnct(1,n,ne)=elem_cnct(-1,n,ne_m)+ne0
+             elem_cnct(1,n,ne)=elem_cnct(-1,n,noelem)+ne0
           enddo
           do n=1,elem_cnct(-1,0,ne)
-             elem_cnct(-1,n,ne)=elem_cnct(1,n,ne_m)+ne0
+             elem_cnct(-1,n,ne)=elem_cnct(1,n,noelem)+ne0
           enddo
        endif
        !if worrying about regions and versions do it here
@@ -328,11 +327,11 @@ contains
        elems_at_node(elem_nodes(2,ne),0)=elems_at_node(elem_nodes(2,ne),0)+1
        elems_at_node(elem_nodes(2,ne),elems_at_node(elem_nodes(2,ne),0))=ne
        nindex=no_gen
-       elem_ordrs(nindex,ne)=elem_ordrs(nindex,ne_m)
+       elem_ordrs(nindex,ne)=elem_ordrs(nindex,noelem)
        nindex=no_sord
-       elem_ordrs(nindex,ne)=elem_ordrs(nindex,ne_m)
+       elem_ordrs(nindex,ne)=elem_ordrs(nindex,noelem)
        nindex=no_hord
-       elem_ordrs(nindex,ne)=elem_ordrs(nindex,ne_m)
+       elem_ordrs(nindex,ne)=elem_ordrs(nindex,noelem)
     enddo
 
     !update current no of nodes and elements to determine connectivity
@@ -367,11 +366,11 @@ contains
           elem_cnct(-1,1,ne1)=ne
           elem_cnct(1,1,ne1)=ne+ne0
           nindex=no_gen
-          elem_ordrs(nindex,ne1)=elem_ordrs(nindex,ne_m)
+          elem_ordrs(nindex,ne1)=elem_ordrs(nindex,ne)
           nindex=no_sord
-          elem_ordrs(nindex,ne1)=elem_ordrs(nindex,ne_m)
+          elem_ordrs(nindex,ne1)=elem_ordrs(nindex,ne)
           nindex=no_hord
-          elem_ordrs(nindex,ne1)=elem_ordrs(nindex,ne_m)
+          elem_ordrs(nindex,ne1)=elem_ordrs(nindex,ne)
           elem_field(ne_group,ne1)=1.0_dp!connection between meshes
        enddo
        print *, 'Number of connections', cap_term
