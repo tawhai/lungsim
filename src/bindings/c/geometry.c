@@ -15,6 +15,7 @@ void define_data_geometry_c(const char *DATAFILE, int *filename_len);
 void import_node_geometry_2d_c(const char *NODEFILE, int *filename_len);
 void import_ply_triangles_c(const char *ply_file, int *filename_len);
 void internal_mesh_reorder_c();
+void list_tree_statistics_c(const char *filename, int *filename_len);
 extern void make_data_grid_c(int *elemlist_len, int elemlist[], int *num_target, double *offset, double *spacing);
 extern void make_2d_vessel_from_1d_c(int *elemlist_len, int elemlist[]);
 void define_rad_from_file_c(const char *FIELDFILE, int *filename_len, const char *radius_type, int *radius_type_len);
@@ -96,6 +97,12 @@ void import_ply_triangles(const char *ply_file)
 void internal_mesh_reorder()
 {
   internal_mesh_reorder_c();
+}
+
+void list_tree_statistics(const char *filename)
+{
+  int filename_len = (int)strlen(filename);
+  list_tree_statistics_c(filename, &filename_len);
 }
 
 void make_data_grid(int elemlist_len, int elemlist[], int num_target, double offset, double spacing)
