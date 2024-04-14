@@ -172,6 +172,18 @@ contains
 !
 !###################################################################################
 !
+  subroutine internal_mesh_reorder_c() bind(C, name="internal_mesh_reorder_c")
+    
+    use geometry,only: internal_mesh_reorder
+    implicit none
+
+    call internal_mesh_reorder()
+
+  end subroutine internal_mesh_reorder_c
+  
+!
+!###################################################################################
+!
   subroutine make_data_grid_c(surface_elems_len, surface_elems, num_target, offset, spacing)&
        bind(C, name="make_data_grid_c")
     
