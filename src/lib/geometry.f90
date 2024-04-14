@@ -1613,17 +1613,17 @@ contains
 !!! Output tree statistics
     average_term_gen = 0.0_dp
     sum_term = 0
-    write(*,'(/'' Generation  #branches    #terminal     Length'',12x,''Diameter&
-         &          Branching          Rotation           ratio L:D'')')
-    write(*,'(26x,''branches       (mm)'',15x,''(mm)'',12x,''angle(deg)&
-         &        angle(deg)'')')
-    write(*,'(120(''-''))')
+    write(*,'(/'' Generation  #branches    #terminal      Length'',14x,&
+         &''Diameter'',12x,''Branching'',12x,''Rotation'',12x,''ratio L:D'')')
+    write(*,'(26x,''branches'',8x,''(mm)'',17x,''(mm)'',14x,''angle(deg)'',&
+         &10x,''angle(deg)'')')
+    write(*,'(135(''-''))')
     if(writefile)then
-       write(10,'(/'' Generation  #branches    #terminal     Length'',12x,''Diameter&
-            &          Branching          Rotation           ratio L:D'')')
-       write(10,'(24x,''  branches     (mm)'',15x,''(mm)'',12x,''angle(deg)&
-            &        angle(deg)'')')
-       write(10,'(120(''-''))')
+       write(10,'(/'' Generation  #branches    #terminal     Length'',14x,&
+            &''Diameter'',12x,''Branching'',12x,''Rotation'',12x''ratio L:D'')')
+       write(10,'(26x,''branches'',8x,''(mm)'',17x,''(mm)'',14x,''angle(deg)'',&
+            &10x,''angle(deg)'')')
+       write(10,'(135(''-''))')
     endif
         
     i = 1
@@ -1645,48 +1645,48 @@ contains
        average_term_gen = 0.0_dp
     endif
         
-    write(*,'(/'' Horsfield   #branches     Length'',11x,''Diameter&
-         &       Branching        Rotation         ratio L:D      Nw/Nw-1'')')
-    write(*,'(4x,''order'',20x,''(mm)'',14x,''(mm)'',9x,''angle(deg)&
-         &     angle(deg)'')')
-    write(*,'(115(''-''))')
+    write(*,'(/'' Horsfield   #branches        Length'',12x,''  Diameter&
+         &          Branching            Rotation           ratio L:D         Nw/Nw-1'')')
+    write(*,'(4x,''order'',21x,'' (mm)'',14x,''   (mm)'',9x,''   angle(deg)&
+         &          angle(deg)'')')
+    write(*,'(135(''-''))')
     if(writefile)then
-       write(10,'(/'' Horsfield   #branches     Length'',11x,''Diameter&
-            &       Branching        Rotation         ratio L:D      Nw/Nw-1'')')
-       write(10,'(4x,''order'',20x,''(mm)'',14x,''(mm)'',9x,''angle(deg)&
-            &     angle(deg)'')')
-       write(10,'(115(''-''))')
+       write(10,'(/'' Horsfield   #branches        Length'',12x,''  Diameter&
+            &          Branching            Rotation           ratio L:D         Nw/Nw-1'')')
+       write(10,'(4x,''order'',21x,'' (mm)'',14x,''   (mm)'',9x,''  angle(deg)&
+            &           angle(deg)'')')
+       write(10,'(135(''-''))')
     endif
         
     i = 2
     do N = 1,nmax_gen(i)
-       write(*,'(2(i10),5(f9.2,'' ('',f6.2,'')''),f9.2)') N,ntally(2,1,N),sum_mean(i,1,N), &
+       write(*,'(2(i10),5(f11.2,'' ('',f6.2,'')''),f11.2)') N,ntally(2,1,N),sum_mean(i,1,N), &
             SD(i,1,N),sum_mean(i,2,N),SD(i,2,N),sum_mean(i,3,N),SD(i,3,N),sum_mean(i,4,N), &
             SD(i,4,N),sum_mean(i,5,N),SD(i,5,N),sum_mean(i,6,N)
        if(writefile)then
-          write(10,'(2(i10),5(f9.2,'' ('',f6.2,'')''),f9.2)') N,ntally(2,1,N),sum_mean(i,1,N), &
+          write(10,'(2(i10),5(f11.2,'' ('',f6.2,'')''),f11.2)') N,ntally(2,1,N),sum_mean(i,1,N), &
                SD(i,1,N),sum_mean(i,2,N),SD(i,2,N),sum_mean(i,3,N),SD(i,3,N),sum_mean(i,4,N), &
                SD(i,4,N),sum_mean(i,5,N),SD(i,5,N),sum_mean(i,6,N)
        endif
     enddo
         
-    write(*,'(/''   Strahler  #branches    Length'',10x,''Diameter'',8x,''Branching&
-         &        Rotation'',10x,''ratio L:D'')')
-    write(*,'(''    order'',18x,''(mm)'',13x,''(mm)'',10x,''angle(deg)      angle(deg)'')')
-    write(*,'(115(''-''))')
+    write(*,'(/''   Strahler  #branches         Length'',10x,''    Diameter'',8x,''    Branching&
+         &             Rotation'',10x,''  ratio L:D'')')
+    write(*,'(''    order'',18x,''     (mm)'',13x,''   (mm)'',10x,''     angle(deg)            angle(deg)'')')
+    write(*,'(124(''-''))')
     if(writefile)then
-       write(10,'(/''   Strahler  #branches    Length'',10x,''Diameter'',8x,''Branching&
-            &        Rotation'',10x,''ratio L:D'')')
-       write(10,'(''    order'',18x,''(mm)'',13x,''(mm)'',10x,''angle(deg)      angle(deg)'')')
-       write(10,'(115(''-''))')
+       write(10,'(/''   Strahler  #branches         Length'',10x,''    Diameter'',8x,''    Branching&
+            &             Rotation'',10x,''  ratio L:D'')')
+       write(10,'(''    order'',18x,''     (mm)'',13x,''   (mm)'',10x,''     angle(deg)            angle(deg)'')')
+       write(10,'(124(''-''))')
     endif
     i = 3
     do N = 1,nmax_gen(i)
-       write(*,'(2(i10),5(f9.2,'' ('',f6.2,'')''))') N,ntally(3,1,N),sum_mean(i,1,N),SD(i,1,N), &
+       write(*,'(2(i10),5(f12.2,'' ('',f6.2,'')''))') N,ntally(3,1,N),sum_mean(i,1,N),SD(i,1,N), &
             sum_mean(i,2,N),SD(i,2,N),sum_mean(i,3,N),SD(i,3,N),sum_mean(i,4,N),SD(i,4,N), &
             sum_mean(i,5,N),SD(i,5,N)
        if(writefile)then
-          write(10,'(2(i10),5(f9.2,'' ('',f6.2,'')''))') N,ntally(3,1,N),sum_mean(i,1,N),SD(i,1,N), &
+          write(10,'(2(i10),5(f12.2,'' ('',f6.2,'')''))') N,ntally(3,1,N),sum_mean(i,1,N),SD(i,1,N), &
                sum_mean(i,2,N),SD(i,2,N),sum_mean(i,3,N),SD(i,3,N),sum_mean(i,4,N),SD(i,4,N), &
                sum_mean(i,5,N),SD(i,5,N)
        endif
