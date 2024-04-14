@@ -1269,15 +1269,15 @@ contains
     character(len=*),intent(in) :: filename
     !     Local Variables
     integer :: genm,i,ind(4),j,N,nbins(5),n_br,ne,ne0,ne1,ne2,ne_major,ne_minor, &
-         ne_next,nmax_gen(4),np0,np1,np2,np3,np4,np5,n_segments,n_terminal(100),num_ddp, &
-         num_llp,ntally(4,6,100), &
-         ntotal,ntotaln(100),sum_term
-    integer,allocatable :: nbranches(:,:)
-    real(dp) :: angle,average_term_gen,bins(5),means(100),mean_diam,norm_1(4),norm_2(4),ratios(4,3), &
-         r_sq(4,3),slope,sd(4,6,100),sdt(100),sum_mean(4,6,100),v1(3),v2(3),x(100),xp0(3),xp1(3), &
-         xp2(3),xp3(3),xp4(3),xp5(3),yregress(100,3)
-    real(dp),allocatable :: branches(:,:),diameters(:),stats(:,:)
-    logical :: add,writefile
+         nmax_gen(3),np0,np1,np2,np3,np4,np5,num_ddp,num_llp, n_segments, &
+         ne_next,ntotal,sum_term
+    integer,allocatable :: nbranches(:,:),n_terminal(:),ntally(:,:,:),ntotaln(:)
+    real(dp) :: angle,average_term_gen,bins(5),mean_diam,norm_1(4),norm_2(4),ratios(4,3), &
+         r_sq(4,3),slope,v1(3),v2(3),xp0(3),xp1(3), &
+         xp2(3),xp3(3),xp4(3),xp5(3)
+    real(dp),allocatable :: branches(:,:),diameters(:),means(:),stats(:,:),sd(:,:,:), &
+         sdt(:),sum_mean(:,:,:),x(:),yregress(:,:)
+    logical :: add,colinear1,colinear2,writefile
     character(len=300) :: treefile
     character(len=60) :: sub_name
     
@@ -1296,16 +1296,20 @@ contains
        writefile = .true.
     endif
 
-    genm = 100 ! the assumed max generations
-    allocate(diameters(num_elems))
-    diameters = 0.0_dp
-    do ne = 1,num_elems
-       diameters(ne) = elem_field(ne_radius,ne) * 2.0_dp
-    enddo
-
+    genm = 150 ! the assumed max generations
+    allocate(n_terminal(genm))
+    allocate(ntally(4,6,genm))
+    allocate(ntotaln(genm))
+    allocate(means(genm))
+    allocate(sd(4,5,genm))
+    allocate(sdt(genm))
+    allocate(sum_mean(4,6,genm))
+    allocate(x(genm))
+    allocate(yregress(genm,3))
     allocate(stats(21,num_elems))
     allocate(branches(10,num_elems))
     allocate(nbranches(5,num_elems))
+    allocate(diameters(num_elems))
 
 !!! Initialise arrays
     means = 0.0_dp
@@ -1320,6 +1324,10 @@ contains
     nbins = 0
     bins = 0.0_dp
     stats = -1.0_dp
+    diameters = 0.0_dp
+    do ne = 1,num_elems
+       diameters(ne) = elem_field(ne_radius,ne) * 2.0_dp
+    enddo
 
 !!! Initialise counters
     ntotal = 0
@@ -1411,9 +1419,15 @@ contains
              xp3(:) = node_xyz(:,np3)
              xp4(:) = node_xyz(:,np4)
              xp5(:) = node_xyz(:,np5)
-             call make_plane_from_3points(norm_1,2,xp1,xp2,xp3) ! calculate unit normal and plane
-             call make_plane_from_3points(norm_2,2,xp2,xp4,xp5) ! calculate unit normal and plane
-             branches(4,N) = angle_btwn_vectors(norm_1,norm_2)*180.0_dp/pi ! rotation angle 
+             colinear1 = check_colinear_points(xp1,xp2,xp3)
+             colinear2 = check_colinear_points(xp2,xp4,xp5)
+             if(colinear1.or.colinear2)then
+                branches(4,N) = -1.0_dp
+             else
+                call make_plane_from_3points(norm_1,2,xp1,xp2,xp3) ! calculate unit normal and plane
+                call make_plane_from_3points(norm_2,2,xp2,xp4,xp5) ! calculate unit normal and plane
+                branches(4,N) = angle_btwn_vectors(norm_1,norm_2)*180.0_dp/pi ! rotation angle
+             endif
           endif
        endif
     enddo ! ne
@@ -1599,26 +1613,26 @@ contains
 !!! Output tree statistics
     average_term_gen = 0.0_dp
     sum_term = 0
-    write(*,'(/'' Generation  #branches  #terminal   Length'',10x,''Diameter&
-         &        Branching        Rotation         ratio L:D'')')
-    write(*,'(24x,''branches     (mm)'',13x,''(mm)'',11x,''angle(deg)&
-         &      angle(deg)'')')
-    write(*,'(115(''-''))')
+    write(*,'(/'' Generation  #branches    #terminal     Length'',12x,''Diameter&
+         &          Branching          Rotation           ratio L:D'')')
+    write(*,'(26x,''branches       (mm)'',15x,''(mm)'',12x,''angle(deg)&
+         &        angle(deg)'')')
+    write(*,'(120(''-''))')
     if(writefile)then
-       write(10,'(/'' Generation  #branches  #terminal   Length'',10x,''Diameter&
-            &        Branching        Rotation         ratio L:D'')')
-       write(10,'(24x,''branches     (mm)'',13x,''(mm)'',11x,''angle(deg)&
-            &      angle(deg)'')')
-       write(10,'(115(''-''))')
+       write(10,'(/'' Generation  #branches    #terminal     Length'',12x,''Diameter&
+            &          Branching          Rotation           ratio L:D'')')
+       write(10,'(24x,''  branches     (mm)'',15x,''(mm)'',12x,''angle(deg)&
+            &        angle(deg)'')')
+       write(10,'(120(''-''))')
     endif
         
     i = 1
     do N = 1,nmax_gen(i)
-       write(*,'(3(i10),5(f8.2,'' ('',f6.2,'')''))') N,ntally(i,1,N),n_terminal(N), &
+       write(*,'(3(i10),5(f12.2,'' ('',f6.2,'')''))') N,ntally(i,1,N),n_terminal(N), &
             sum_mean(i,1,N),SD(i,1,N),sum_mean(i,2,N),SD(i,2,N),sum_mean(i,3,N),SD(i,3,N), &
             sum_mean(i,4,N),SD(i,4,N),sum_mean(i,5,N),SD(i,5,N)
        if(writefile)then
-          write(10,'(3(i10),5(f8.2,'' ('',f6.2,'')''))') N,ntally(i,1,N),n_terminal(N), &
+          write(10,'(3(i10),5(f12.2,'' ('',f6.2,'')''))') N,ntally(i,1,N),n_terminal(N), &
                sum_mean(i,1,N),SD(i,1,N),sum_mean(i,2,N),SD(i,2,N),sum_mean(i,3,N),SD(i,3,N), &
                sum_mean(i,4,N),SD(i,4,N),sum_mean(i,5,N),SD(i,5,N)
        endif
@@ -1646,11 +1660,11 @@ contains
         
     i = 2
     do N = 1,nmax_gen(i)
-       write(*,'(2(i10),5(f8.2,'' ('',f6.2,'')''),f8.2)') N,ntally(2,1,N),sum_mean(i,1,N), &
+       write(*,'(2(i10),5(f9.2,'' ('',f6.2,'')''),f9.2)') N,ntally(2,1,N),sum_mean(i,1,N), &
             SD(i,1,N),sum_mean(i,2,N),SD(i,2,N),sum_mean(i,3,N),SD(i,3,N),sum_mean(i,4,N), &
             SD(i,4,N),sum_mean(i,5,N),SD(i,5,N),sum_mean(i,6,N)
        if(writefile)then
-          write(10,'(2(i10),5(f8.2,'' ('',f6.2,'')''),f8.2)') N,ntally(2,1,N),sum_mean(i,1,N), &
+          write(10,'(2(i10),5(f9.2,'' ('',f6.2,'')''),f9.2)') N,ntally(2,1,N),sum_mean(i,1,N), &
                SD(i,1,N),sum_mean(i,2,N),SD(i,2,N),sum_mean(i,3,N),SD(i,3,N),sum_mean(i,4,N), &
                SD(i,4,N),sum_mean(i,5,N),SD(i,5,N),sum_mean(i,6,N)
        endif
@@ -1668,11 +1682,11 @@ contains
     endif
     i = 3
     do N = 1,nmax_gen(i)
-       write(*,'(2(i10),5(f8.2,'' ('',f6.2,'')''))') N,ntally(3,1,N),sum_mean(i,1,N),SD(i,1,N), &
+       write(*,'(2(i10),5(f9.2,'' ('',f6.2,'')''))') N,ntally(3,1,N),sum_mean(i,1,N),SD(i,1,N), &
             sum_mean(i,2,N),SD(i,2,N),sum_mean(i,3,N),SD(i,3,N),sum_mean(i,4,N),SD(i,4,N), &
             sum_mean(i,5,N),SD(i,5,N)
        if(writefile)then
-          write(10,'(2(i10),5(f8.2,'' ('',f6.2,'')''))') N,ntally(3,1,N),sum_mean(i,1,N),SD(i,1,N), &
+          write(10,'(2(i10),5(f9.2,'' ('',f6.2,'')''))') N,ntally(3,1,N),sum_mean(i,1,N),SD(i,1,N), &
                sum_mean(i,2,N),SD(i,2,N),sum_mean(i,3,N),SD(i,3,N),sum_mean(i,4,N),SD(i,4,N), &
                sum_mean(i,5,N),SD(i,5,N)
        endif
@@ -1756,6 +1770,15 @@ contains
        write(10,'('' mean angle Dp 0.7+   = '',f7.3)') bins(5)
     endif
     
+    deallocate(n_terminal)
+    deallocate(ntally)
+    deallocate(ntotaln)
+    deallocate(means)
+    deallocate(sd)
+    deallocate(sdt)
+    deallocate(sum_mean)
+    deallocate(x)
+    deallocate(yregress)
     deallocate(diameters)
     deallocate(stats)
     deallocate(branches)
