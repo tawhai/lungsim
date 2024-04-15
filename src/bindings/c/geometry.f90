@@ -172,6 +172,27 @@ contains
 !
 !###################################################################################
 !
+  subroutine list_tree_statistics_c(filename, filename_len) &
+       bind(C, name="list_tree_statistics_c")
+
+    use iso_c_binding, only: c_ptr
+    use utils_c, only: strncpy
+    use other_consts, only: MAX_FILENAME_LEN
+    use geometry,only: list_tree_statistics
+    implicit none
+
+    integer,intent(in) :: filename_len
+    type(c_ptr), value, intent(in) :: filename
+    character(len=MAX_FILENAME_LEN) :: filename_f
+    
+    call strncpy(filename_f, filename, filename_len)
+
+    call list_tree_statistics(filename_f)
+
+  end subroutine list_tree_statistics_c
+!
+!###################################################################################
+!
   subroutine internal_mesh_reorder_c() bind(C, name="internal_mesh_reorder_c")
     
     use geometry,only: internal_mesh_reorder
