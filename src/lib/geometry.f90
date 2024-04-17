@@ -376,6 +376,7 @@ contains
        enddo
        print *, 'Number of connections', cap_term
     endif
+
     num_nodes=num_nodes_new
     num_elems=num_elems_new
     deallocate(np_map)
@@ -3310,6 +3311,10 @@ contains
                    elem_field(ne_radius,ne) = radius
                    if(ne_vol.gt.0)then
                      elem_field(ne_vol,ne) = pi*radius**2*elem_field(ne_length,ne)
+                  endif
+                  if(ne_radius_in.gt.0)then
+                     elem_field(ne_radius_in,ne)=radius
+                     elem_field(ne_radius_out,ne)=radius
                   endif
                 else
                    ne0 = elem_cnct(-1,1,ne0)
