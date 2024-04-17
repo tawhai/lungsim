@@ -296,31 +296,30 @@ contains
 
     do noelem=1,num_elems
        ne=ne_global+noelem
-       elem_field(ne_group,ne)=2.0_dp!VEIN
-       ne_m=elems(noelem)
-       elem_field(ne_group,ne_m)=0.0_dp!ARTERY
+       elem_field(ne_group,ne0+noelem)=2.0_dp!VEIN
+       elem_field(ne_group,noelem)=0.0_dp!ARTERY
        elems(ne0+noelem)=ne
        if(.NOT.REVERSE)then
-          elem_nodes(1,ne)=np_map(elem_nodes(1,ne_m))
-          elem_nodes(2,ne)=np_map(elem_nodes(2,ne_m))
-          elem_cnct(1,0,ne)=elem_cnct(1,0,ne_m)!The numberdownstream are the number downstream
-          elem_cnct(-1,0,ne)=elem_cnct(-1,0,ne_m)
+          elem_nodes(1,ne)=np_map(elem_nodes(1,noelem))
+          elem_nodes(2,ne)=np_map(elem_nodes(2,noelem))
+          elem_cnct(1,0,ne)=elem_cnct(1,0,noelem)!The numberdownstream are the number downstream
+          elem_cnct(-1,0,ne)=elem_cnct(-1,0,noelem)
           do n=1,elem_cnct(1,0,ne)
-             elem_cnct(1,n,ne)=elem_cnct(1,n,ne_m)+ne0
+             elem_cnct(1,n,ne)=elem_cnct(1,n,noelem)+ne0
           enddo
           do n=1,elem_cnct(-1,0,ne)
-             elem_cnct(-1,n,ne)=elem_cnct(-1,n,ne_m)+ne0
+             elem_cnct(-1,n,ne)=elem_cnct(-1,n,noelem)+ne0
           enddo
        else
-          elem_nodes(1,ne)=np_map(elem_nodes(2,ne_m))
-          elem_nodes(2,ne)=np_map(elem_nodes(1,ne_m))
-          elem_cnct(-1,0,ne)=elem_cnct(1,0,ne_m) !The number upstream are the number downstream
-          elem_cnct(1,0,ne)=elem_cnct(-1,0,ne_m)!The number downstream are the number upstream
+          elem_nodes(1,ne)=np_map(elem_nodes(2,noelem))
+          elem_nodes(2,ne)=np_map(elem_nodes(1,noelem))
+          elem_cnct(-1,0,ne)=elem_cnct(1,0,noelem) !The number upstream are the number downstream
+          elem_cnct(1,0,ne)=elem_cnct(-1,0,noelem)!The number downstream are the number upstream
           do n=1,elem_cnct(1,0,ne)
-             elem_cnct(1,n,ne)=elem_cnct(-1,n,ne_m)+ne0
+             elem_cnct(1,n,ne)=elem_cnct(-1,n,noelem)+ne0
           enddo
           do n=1,elem_cnct(-1,0,ne)
-             elem_cnct(-1,n,ne)=elem_cnct(1,n,ne_m)+ne0
+             elem_cnct(-1,n,ne)=elem_cnct(1,n,noelem)+ne0
           enddo
        endif
        !if worrying about regions and versions do it here
@@ -329,11 +328,11 @@ contains
        elems_at_node(elem_nodes(2,ne),0)=elems_at_node(elem_nodes(2,ne),0)+1
        elems_at_node(elem_nodes(2,ne),elems_at_node(elem_nodes(2,ne),0))=ne
        nindex=no_gen
-       elem_ordrs(nindex,ne)=elem_ordrs(nindex,ne_m)
+       elem_ordrs(nindex,ne)=elem_ordrs(nindex,noelem)
        nindex=no_sord
-       elem_ordrs(nindex,ne)=elem_ordrs(nindex,ne_m)
+       elem_ordrs(nindex,ne)=elem_ordrs(nindex,noelem)
        nindex=no_hord
-       elem_ordrs(nindex,ne)=elem_ordrs(nindex,ne_m)
+       elem_ordrs(nindex,ne)=elem_ordrs(nindex,noelem)
     enddo
 
     !update current no of nodes and elements to determine connectivity
@@ -368,15 +367,16 @@ contains
           elem_cnct(-1,1,ne1)=ne
           elem_cnct(1,1,ne1)=ne+ne0
           nindex=no_gen
-          elem_ordrs(nindex,ne1)=elem_ordrs(nindex,ne_m)
+          elem_ordrs(nindex,ne1)=elem_ordrs(nindex,ne)
           nindex=no_sord
-          elem_ordrs(nindex,ne1)=elem_ordrs(nindex,ne_m)
+          elem_ordrs(nindex,ne1)=elem_ordrs(nindex,ne)
           nindex=no_hord
-          elem_ordrs(nindex,ne1)=elem_ordrs(nindex,ne_m)
+          elem_ordrs(nindex,ne1)=elem_ordrs(nindex,ne)
           elem_field(ne_group,ne1)=1.0_dp!connection between meshes
        enddo
        print *, 'Number of connections', cap_term
     endif
+
     num_nodes=num_nodes_new
     num_elems=num_elems_new
     deallocate(np_map)
@@ -574,8 +574,7 @@ contains
        call evaluate_ordering
        elem_ordrs(no_type,:) = 1 ! 0 for respiratory, 1 for conducting
     endif
-    write(*,*) 'internal reorder done'
-    
+
     call enter_exit(sub_name,2)
 
   end subroutine define_1d_elements
@@ -3342,6 +3341,10 @@ contains
                    if(ne_vol.gt.0)then
                      elem_field(ne_vol,ne) = pi*radius**2*elem_field(ne_length,ne)
                   endif
+                  if(ne_radius_in.gt.0)then
+                     elem_field(ne_radius_in,ne)=radius
+                     elem_field(ne_radius_out,ne)=radius
+                  endif
                 else
                    ne0 = elem_cnct(-1,1,ne0)
                 endif
@@ -3622,16 +3625,16 @@ contains
     ! sequential from the stem branches down
 
     ! Local variables
-    integer :: count_elems,i,j,ne,nep,ne_old,ngen,num_branches,num_term_branches
+    integer :: count_elems,i,j,ne,nep,ne_old,ngen,num_branches,num_term_branches,INLET_COUNTS
     integer,allocatable :: list_branches(:),list_term_branches(:),map_to_new(:), &
          map_to_old(:),temp_elems(:),temp_elem_nodes(:,:),temp_elem_symmetry(:), &
          temp_elem_units_below(:)
     real(dp),allocatable :: temp_elem_direction(:,:),temp_elem_field(:,:)
     logical,allocatable :: temp_expansile(:)
     character(len=60) :: sub_name
-    
+
     ! --------------------------------------------------------------------------
-    
+
     sub_name = 'internal_mesh_reorder'
     call enter_exit(sub_name,1)
 
@@ -3642,9 +3645,23 @@ contains
 
     ! work through each successive generation, incrementing elements one by one
     count_elems = 0
+    INLET_COUNTS = 0
     num_term_branches = 1
     ngen = 0
-    list_term_branches(1) = 1 ! this assumes that the first element is the stem! 
+    map_to_old = 0 ! initialise array
+    map_to_new = 0 ! initialise array
+    list_term_branches = 0 ! initialise array
+    do i = 1,num_elems  ! Finds the stem element (or the inlet of the mesh)
+      if(elem_cnct(-1,0,i).eq.0) then
+           list_term_branches(1) = i
+           INLET_COUNTS = INLET_COUNTS + 1
+      endif
+      if(INLET_COUNTS.gt.1)then ! Check whether there are more than one inlet in the mesh. If there is,
+                                ! the re-oredring won't take care of that. Not implemented.
+        write(*,*) 'WARNING: MORE THAN ONE INLET DETECTED IN THE MESH!!! CHECK YOUR MESH AGAIN.'
+        call exit(0)
+      endif
+    end do
     do while(num_term_branches.ne.0)
        num_branches = num_term_branches ! temporary, to loop over
        num_term_branches = 0 ! reset to zero and count for this generation
@@ -3715,13 +3732,13 @@ contains
 
     call element_connectivity_1d
     call evaluate_ordering
-    
+
     elem_ordrs(no_type,:) = 1 ! all conducting
-    
+
     call enter_exit(sub_name,2)
 
   end subroutine internal_mesh_reorder
-  
+
 !!!#############################################################################
 
   subroutine evaluate_ordering()
@@ -3837,6 +3854,7 @@ contains
        if(num_attach.EQ.0)THEN
           DISCONNECT=.TRUE.
           write(*,'('' WARNING: node'',i6,'' is disconnected'')') np
+          write(*,*) elems_at_node(np,1), elems_at_node(np,2), elem_cnct(1,0,elems_at_node(np,2))
           problem = .true.
        elseif(num_attach.EQ.1)THEN
           ne=elems_at_node(np,1)
