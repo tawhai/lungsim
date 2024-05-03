@@ -1268,14 +1268,13 @@ contains
     character(len=*),intent(in) :: filename
     !     Local Variables
     integer :: genm,i,ind(4),j,N,nbins(5),n_br,ne,ne0,ne1,ne2,ne_major,ne_minor, &
-         nmax_gen(3),np0,np1,np2,np3,np4,np5,num_ddp,num_llp, n_segments, &
+         ngen,nmax_gen(3),np0,np1,np2,np3,np4,np5,num_ddp,num_llp, n_segments, &
          ne_next,ntotal,sum_term
-    integer,allocatable :: nbranches(:,:),n_terminal(:),ntally(:,:,:),ntotaln(:)
+    integer,allocatable :: gencount(:),nbranches(:,:),n_terminal(:),ntally(:,:,:),ntotaln(:)
     real(dp) :: angle,average_term_gen,bins(5),mean_diam,norm_1(4),norm_2(4),ratios(4,3), &
-         r_sq(4,3),slope,v1(3),v2(3),xp0(3),xp1(3), &
-         xp2(3),xp3(3),xp4(3),xp5(3)
-    real(dp),allocatable :: branches(:,:),diameters(:),means(:),stats(:,:),sd(:,:,:), &
-         sdt(:),sum_mean(:,:,:),x(:),yregress(:,:)
+         r_sq(4,3),slope,v1(3),v2(3),xp0(3),xp1(3),xp2(3),xp3(3),xp4(3),xp5(3)
+    real(dp),allocatable :: branches(:,:),diameters(:),means(:),mean_major(:),mean_minor(:), &
+         stats(:,:),sd(:,:,:),sdt(:),sum_mean(:,:,:),x(:),yregress(:,:)
     logical :: add,colinear1,colinear2,writefile
     character(len=300) :: treefile
     character(len=60) :: sub_name
@@ -1296,10 +1295,13 @@ contains
     endif
 
     genm = 150 ! the assumed max generations
+    allocate(gencount(genm))
     allocate(n_terminal(genm))
     allocate(ntally(4,6,genm))
     allocate(ntotaln(genm))
     allocate(means(genm))
+    allocate(mean_major(genm))
+    allocate(mean_minor(genm))
     allocate(sd(4,5,genm))
     allocate(sdt(genm))
     allocate(sum_mean(4,6,genm))
@@ -1369,6 +1371,7 @@ contains
 
 !!!...... Calculate branching angle to parent
           if(ind(1).gt.1)then ! only calculate angles for elements higher than stem element
+             ! note: this is correct for branches with multiple elements. Using data at the bifurcation
              np0 = elem_nodes(1,ne0) ! start of parent
              np1 = elem_nodes(1,ne)  ! start node
              np2 = elem_nodes(2,ne)  ! end node
@@ -1430,7 +1433,31 @@ contains
           endif
        endif
     enddo ! ne
-        
+
+!!! note: this section not used. written to check for systematic differences in
+!!! the 'read in' airways/vessels, but looks same by generation
+    mean_major = 0.0_dp
+    mean_minor = 0.0_dp
+    gencount = 0
+    do ne = 1,num_elems
+       if(elem_cnct(1,0,ne).eq.2)then
+          ne1 = elem_cnct(1,1,ne) !first child
+          ne2 = elem_cnct(1,2,ne) !second child
+          ngen = elem_ordrs(1,ne)+1
+          mean_major(ngen) = mean_major(ngen) + min(stats(2,ne1),stats(2,ne2))
+          mean_minor(ngen) = mean_minor(ngen) + max(stats(2,ne1),stats(2,ne2))
+          gencount(ngen) = gencount(ngen) + 1
+       endif
+    enddo
+    do ngen = 1,genm
+       if(gencount(ngen).gt.0)then
+          mean_major(ngen) = mean_major(ngen)/dble(gencount(ngen))
+          mean_minor(ngen) = mean_minor(ngen)/dble(gencount(ngen))
+          !write(*,*) ngen,mean_major(ngen)*180.0_dp/pi,mean_minor(ngen)*180.0_dp/pi
+       endif
+    enddo
+!!! end section not used
+    
     n_br = N
     do ne = 1,num_elems
        ne0 = elem_cnct(-1,1,ne) ! parent element
@@ -1449,7 +1476,8 @@ contains
             
 !!!....   Summary statistics
           if(stats(6,ne1).ge.0.0_dp.and.stats(6,ne2).ge.0.0_dp)then
-             if(stats(6,ne1).ge.stats(6,ne2))then !diameter classification
+             !if(stats(6,ne1).ge.stats(6,ne2))then !diameter classification
+             if(stats(2,ne1).le.stats(2,ne2))then !angle classification
                 ne_major = ne1
                 ne_minor = ne2
              else
@@ -1768,11 +1796,13 @@ contains
        write(10,'('' mean angle Dp 1.0+   = '',f7.3)') bins(4)
        write(10,'('' mean angle Dp 0.7+   = '',f7.3)') bins(5)
     endif
-    
+
+    deallocate(gencount)
     deallocate(n_terminal)
     deallocate(ntally)
     deallocate(ntotaln)
     deallocate(means)
+    deallocate(mean_major,mean_minor)
     deallocate(sd)
     deallocate(sdt)
     deallocate(sum_mean)
@@ -3772,6 +3802,7 @@ contains
     num_term_branches = 1
     list_term_branches(1) = 1
     n_generation = 0
+    elem_ordrs(1,1) = 1 ! this should be changed to use a given stem branch element number
 
     ! work through each successive generation, incrementing one by one
     ! using this approach to account for parent elements that have lower element number than child
@@ -3781,13 +3812,17 @@ contains
        num_term_branches = 0 ! reset to zero and count for this generation
        do i = 1,num_branches ! for each element in this generation
           ne = list_term_branches(i)
-          elem_ordrs(1,ne) = n_generation
           do j = 1,elem_cnct(1,0,ne) ! for each child
              nep = elem_cnct(1,j,ne) ! child element number
-             ! check whether there are more elements in the same branch 
-             do while(elem_cnct(1,j,nep).eq.1.and.elem_symmetry(nep).eq.1)
-                elem_ordrs(1,nep) = elem_ordrs(1,ne) ! same generation as parent because in the same branch
-                nep = elem_cnct(1,j,nep) ! next child branch
+             if(elem_cnct(1,0,ne).eq.1.and.elem_symmetry(nep).eq.1)then
+                elem_ordrs(1,nep) = elem_ordrs(1,ne) ! the generation is the same as the parent
+             else
+                elem_ordrs(1,nep) = n_generation
+             endif
+             ! check whether there are more elements in the same branch
+             do while(elem_cnct(1,0,nep).eq.1.and.elem_symmetry(nep).eq.1)
+                nep = elem_cnct(1,1,nep) ! next child branch
+                elem_ordrs(1,nep) = n_generation ! same generation as parent because in the same branch
              enddo
              num_term_branches = num_term_branches + 1 ! increment number of new terminals
              list_branches(num_term_branches) = nep ! add to list for next generation
