@@ -13,6 +13,7 @@ set(LIB_SRCS
   growtree.f90
   indices.f90
   imports.f90
+  lung_mechanics.f90
   lymphatics.f90
   math_utilities.f90
   mesh_utilities.f90

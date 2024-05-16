@@ -16,7 +16,14 @@ module arrays
 
   integer :: num_elems,num_elems_2d,num_groups,num_nodes,num_data, &
        num_nodes_2d,num_triangles,num_units,num_vertices,num_lines_2d,maxgen
-
+  ! for lung_mechanics
+  integer :: nem,ngt(2),nit(2),nnt(2),nom,not(2),nst(2),nut(2),nym,nyt,nz_gk_m,nz_gkk_m
+  integer :: tissue_num_nodes,cavity_num_nodes,tissue_num_elems,cavity_num_elems
+  integer,parameter :: nbm = 2, ngm = 27, nhm = 3, njm = 8, nmm = 4, &
+       nnm = 27, nsm = 27, num = 11
+  integer :: il_density,it(3,2)
+  
+  ! general
   integer,allocatable :: nodes(:) !allocated in define_node_geometry
   integer,allocatable :: nodes_2d(:) !allocated in define_node_geometry_2d
   integer,allocatable :: node_versn_2d(:) !allocated in define_node_geometry_2d
@@ -53,7 +60,20 @@ module arrays
   real(dp), allocatable :: RHS(:)
   real(dp), allocatable :: prq_solution(:,:),solver_solution(:)
   logical, allocatable :: FIX(:)
-  
+
+  ! for lung_mechanics
+  integer,allocatable :: cavity_elems(:),cavity_nodes(:), &
+       nony(:,:,:),npne(:,:,:),npne_cavity(:,:),tissue_elems(:),tissue_elem_nodes(:,:), &
+       tissue_nodes(:),npny(:,:,:),num_adjacent(:), &
+       nyno(:,:,:),nynp(:,:,:,:),nynr(:,:,:)
+  real(dp),allocatable :: ce(:,:),cg(:,:), &
+       gk(:),gkk(:),gr(:),grr(:),material_at_gp(:,:,:),rsolv1(:),tissue_xyz(:,:), &
+       xo(:),xp(:,:),xp_cavity(:,:),yg(:,:,:),yp(:,:), zp(:,:,:)
+  logical,allocatable :: fix_mech(:,:)
+  real(dp) :: gravity(3), ratio_limit,ratio_stiffness
+  logical :: firsts
+
+  ! general
   real(dp),allocatable :: arclength(:)
   real(dp),allocatable :: elem_field(:,:) !properties of elements
   real(dp),allocatable :: elem_direction(:,:)
@@ -156,7 +176,13 @@ module arrays
        elasticity_param, two_parameter, three_parameter, four_parameter, all_admit_param, update_parameter, &
        mesh_from_depvar, depvar_at_node, depvar_at_elem, SparseCol, SparseRow, triangle, &
        update_resistance_entries, vertex_xyz, &
-       SparseVal, RHS, prq_solution, solver_solution, FIX
+       SparseVal, RHS, prq_solution, solver_solution, FIX, &
+       nem,ngt,nit,nnt,nom,not,nst,nut,nym,nyt,nz_gk_m,nz_gkk_m,tissue_num_nodes,cavity_num_nodes, &
+       tissue_num_elems,cavity_num_elems,nbm,ngm,nhm,njm,nmm,nnm,nsm,num,il_density,it,cavity_elems, &
+       cavity_nodes,nony,npne,npne_cavity,tissue_elems,tissue_elem_nodes,tissue_nodes,npny, &
+       num_adjacent,nyno,nynp,nynr,ce,cg,gk,gkk,gr,grr,material_at_gp,rsolv1,tissue_xyz,xo,xp,xp_cavity, &
+       yg,yp,zp,fix_mech,gravity,ratio_limit,ratio_stiffness,firsts
+
 
 contains
   subroutine set_node_field_value(row, col, value)

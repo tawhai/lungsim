@@ -32,7 +32,7 @@ module ventilation
   public two_unit_test
   public sum_elem_field_from_periphery
 
-  real(dp),parameter,private :: gravity = 9.81e3_dp         ! mm/s2
+  !real(dp),parameter,private :: gravity = 9.81e3_dp         ! mm/s2
 !!! for air
   real(dp),parameter,private :: gas_density =   1.146e-6_dp ! g.mm^-3
   real(dp),parameter,private :: gas_viscosity = 1.8e-5_dp   ! Pa.s

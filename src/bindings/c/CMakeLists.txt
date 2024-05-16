@@ -13,6 +13,7 @@ set(C_FORTRAN_LIB_SRCS
     growtree.f90
     indices.f90
     imports.f90
+    lung_mechanics.f90
     lymphatics.f90
     pressure_resistance_flow.f90
     species_transport.f90
@@ -34,6 +35,7 @@ set(C_C_LIB_SRCS
     growtree.c
     indices.c
     imports.c
+    lung_mechanics.c
     lymphatics.c
     pressure_resistance_flow.c
     species_transport.c
@@ -56,6 +58,7 @@ set(C_LIB_HDRS
   growtree.h
   indices.h
   imports.h
+  lung_mechanics.h
   lymphatics.h
   pressure_resistance_flow.h
   species_transport.h
