@@ -30,10 +30,14 @@ module geometry
   public append_units
   public coord_at_xi
   public define_1d_elements
+  public define_elem_cavity
   public define_elem_geometry_2d
+  public define_elem_tissue
   public define_mesh_geometry_test
+  public define_node_cavity
   public define_node_geometry
   public define_node_geometry_2d
+  public define_node_tissue
   public define_data_geometry
   public define_rad_from_file
   public define_rad_from_geom
@@ -574,6 +578,41 @@ contains
 
   end subroutine define_1d_elements
 
+!!!##############################################################################################
+
+  subroutine define_elem_cavity(filename)
+
+    use mesh_utilities,only: local_cavity_node
+    
+    character,intent(in) :: filename*(*)
+    !     Local Variables
+    integer :: i,ne,noelem,temp_npne(9)
+    character :: readfile*(100)
+
+    if(index(filename, ".lselem")>0)then ! full filename is given
+       readfile = trim(filename)
+    else! append correct extension
+       readfile = trim(filename)//'.lselem'
+    endif
+    
+    open(10, file = readfile, status = 'old')
+    read(unit = 10, fmt =  *) cavity_num_elems
+    
+    if(allocated(cavity_elems)) deallocate(cavity_elems)
+    allocate(cavity_elems(cavity_num_elems))
+    allocate(npne_cavity(nnm,cavity_num_elems))
+       
+    do noelem = 1,cavity_num_elems
+       read(unit = 10, fmt =  *) ne,temp_npne(:) 
+       do i = 1,9
+          npne_cavity(i,noelem) = local_cavity_node(temp_npne(i))
+       enddo
+       cavity_elems(noelem) = ne
+    enddo ! noelem
+    close(10)
+    
+  end subroutine define_elem_cavity
+  
 !!!#############################################################################
 
   subroutine define_elem_geometry_2d(ELEMFILE,sf_option)
@@ -661,6 +700,81 @@ contains
 
   end subroutine define_elem_geometry_2d
 
+!!!##############################################################################################
+
+  subroutine define_elem_tissue(filename)
+
+    use mesh_utilities,only: local_tissue_node
+    
+    character :: filename*(*)
+    !     Local Variables
+    integer :: centre_nodes(6),i,ne,nodelist(27),noelem,noelem2, &
+         nn,np,npc,num_repeats
+    integer,allocatable :: elems_in(:,:)
+    character :: readfile*(100)
+
+    centre_nodes = (/13,15,11,17,5,23/)
+    if(index(filename, ".lselem")>0)then ! full filename is given
+       readfile = trim(filename)
+    else! append correct extension
+       readfile = trim(filename)//'.lselem'
+    endif
+    
+    open(10, file = readfile, status = 'old')
+    read(unit = 10, fmt =  *) tissue_num_elems
+    
+    if(allocated(tissue_elems))then
+       deallocate(tissue_elems)
+       deallocate(tissue_elem_nodes)
+       deallocate(num_adjacent)
+    endif
+    allocate(tissue_elems(tissue_num_elems))
+    allocate(tissue_elem_nodes(27,tissue_num_elems))
+    allocate(num_adjacent(tissue_num_nodes))
+    allocate(elems_in(0:10,tissue_num_nodes))
+    allocate(npne(nnm,nbm,tissue_num_elems))
+    allocate(ce(nmm,tissue_num_elems))
+    allocate(material_at_gp(4,ngm,tissue_num_elems))
+    allocate(yg(2,ngm,tissue_num_elems))
+
+    num_adjacent = 0
+    elems_in = 0
+       
+    do noelem = 1,tissue_num_elems
+       !     read the element and its nodes
+       read(unit = 10, fmt =  *) ne,nodelist(1:27)
+       npne(:,1,ne) = nodelist(:)
+       tissue_elems(noelem) = ne
+       do nn = 1,27
+          np = local_tissue_node(nodelist(nn))
+          tissue_elem_nodes(nn,noelem) = np
+          num_adjacent(np) = num_adjacent(np) + 1
+       enddo
+    enddo                     ! noelem
+
+    close(10)
+
+    ! adjust the number of adjacent elements for nodes that are repeated
+    do noelem = 1,tissue_num_elems
+       do i = 1,6 ! for each face
+          nn = centre_nodes(i)
+          npc = tissue_elem_nodes(nn,noelem)
+          if(count(tissue_elem_nodes(:,noelem).eq.npc).gt.1)then
+             ! the centre node is repeated, must be a collapsed element
+             num_repeats = 0
+             do noelem2 = 1,tissue_num_elems
+                if(count(tissue_elem_nodes(:,noelem2).eq.npc).gt.1) &
+                     num_repeats = num_repeats + 1
+             enddo
+             if(num_repeats.ge.2) num_adjacent(npc) = 1
+          endif
+       enddo
+    enddo
+
+    deallocate(elems_in)
+   
+  end subroutine define_elem_tissue
+  
 !!!#############################################################################
 
   subroutine define_mesh_geometry_test()
@@ -810,6 +924,38 @@ contains
 
   end subroutine define_mesh_geometry_test
 
+!!!##############################################################################################
+
+  subroutine define_node_cavity(filename)
+    character :: filename*(*)
+    integer :: nonode,np
+    real(dp) :: coords(3)
+    character :: readfile*(100)
+
+    if(index(filename, ".lsnode")>0)then ! full filename is given
+       readfile = trim(filename)
+    else! append correct extension
+       readfile = trim(filename)//'.lsnode'
+    endif
+    
+    open(10, file = readfile, status = 'old')
+    
+    read(unit = 10, fmt =  *) cavity_num_nodes
+
+    if(allocated(cavity_nodes)) deallocate(cavity_nodes)
+    allocate(cavity_nodes(cavity_num_nodes))
+    allocate(xp_cavity(njm,cavity_num_nodes))
+       
+    do nonode = 1,cavity_num_nodes
+       read(unit = 10, fmt =  *) np,coords(1:3) !xp(1,np),xp(2,np),xp(3,np)
+       xp_cavity(1:3,nonode) = coords(1:3)
+       cavity_nodes(nonode) = np
+    enddo
+      
+    close(10)
+
+  end subroutine define_node_cavity
+  
 !!!#############################################################################
 
   subroutine define_node_geometry(NODEFILE)
@@ -1010,6 +1156,41 @@ contains
     call enter_exit(sub_name,2)
 
   end subroutine define_node_geometry_2d
+
+!!!##############################################################################################
+
+  subroutine define_node_tissue(filename)
+    character :: filename*(*)
+    integer :: nonode,np
+    character :: readfile*(100)
+
+    if(index(filename, ".lsnode")>0)then ! full filename is given
+       readfile = trim(filename)
+    else! append correct extension
+       readfile = trim(filename)//'.lsnode'
+    endif
+    
+    open(10, file = readfile, status = 'old')
+    
+    read(unit = 10, fmt =  *) tissue_num_nodes
+
+    if(allocated(tissue_nodes)) deallocate(tissue_nodes)
+    allocate(tissue_nodes(tissue_num_nodes))
+    if(allocated(tissue_xyz)) deallocate(tissue_xyz)
+    allocate(tissue_xyz(3,tissue_num_nodes))
+    allocate(xp(njm,tissue_num_nodes))
+
+    !npm = tissue_num_nodes
+       
+    do nonode = 1,tissue_num_nodes
+       read(unit = 10, fmt =  *) np,xp(1:3,nonode)
+       tissue_xyz(1:3,nonode) = xp(1:3,nonode) ! different storage
+       tissue_nodes(nonode) = np
+    enddo                     ! np
+      
+    close(10)
+    
+  end subroutine define_node_tissue
 
 !!!#############################################################################
 
@@ -2703,7 +2884,7 @@ contains
     character(LEN=*), optional :: group_type_in, group_option_in
     !Input options ORDER_SYSTEM=STRAHLER (CONTROL_PARAM=RDS), HORSFIELD (CONTROL_PARAM=RDH)
     ! Local variables
-    integer :: inlet_count,ne,ne0,ne_max,ne_min,ne_start,nindex,norder,n_max_ord
+    integer :: k,nth,inlet_count,ne,ne0,ne_max,ne_min,ne_start,nindex,norder,n_max_ord
     real(dp) :: max_radius,radius,ratio_diameter
     logical :: found
     character(LEN=100) :: group_type

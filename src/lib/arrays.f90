@@ -158,6 +158,16 @@ module arrays
 !!! arrays that start with default values, updated during simulations/by user
   type(default_lymphatic_properties) :: lymphatic_properties
   
+  type default_mechanics_properties
+     real(dp) :: densityFRC = 3.32e-4_dp
+     real(dp) :: ref_pct = 0.5_dp * 157.0_dp
+     real(dp) :: scale_0 = (0.5_dp)**(1.0_dp/3.0_dp)
+     real(dp) :: sedf_a = 2500.0_dp, sedf_b = 0.43_dp, sedf_c = -0.6_dp
+  end type default_mechanics_properties
+
+!!! arrays that start with default values, updated during simulations/by user
+  type(default_mechanics_properties) :: mechanics_properties
+  
 ! temporary, for debugging:
   real(dp) :: unit_before
 
@@ -172,7 +182,8 @@ module arrays
        elem_units_below, maxgen,capillary_bf_parameters, zero_tol,loose_tol,gasex_field, &
        num_lines_2d, lines_2d, line_versn_2d, lines_in_elem, nodes_in_line, elems_2d, &
        elem_cnct_2d, elem_nodes_2d, elem_versn_2d, elem_lines_2d, elems_at_node_2d, arclength, &
-       scale_factors_2d, fluid_properties, lymphatic_properties, elasticity_vessels, admittance_param, &
+       scale_factors_2d, fluid_properties, lymphatic_properties, mechanics_properties, &
+       elasticity_vessels, admittance_param, &
        elasticity_param, two_parameter, three_parameter, four_parameter, all_admit_param, update_parameter, &
        mesh_from_depvar, depvar_at_node, depvar_at_elem, SparseCol, SparseRow, triangle, &
        update_resistance_entries, vertex_xyz, &

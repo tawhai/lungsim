@@ -7,10 +7,14 @@ void add_mesh_c(const char *AIRWAY_MESHFILE, int *filename_len);
 void add_matching_mesh_c(void);
 void append_units_c(void);
 void define_1d_elements_c(const char *ELEMFILE, int *filename_len);
+void define_elem_cavity_c(const char *ELEMFILE, int *filename_len);
 void define_elem_geometry_2d_c(const char *ELEMFILE, int *filename_len, const char *SF_OPTION, int *sf_option_len);
+void define_elem_tissue_c(const char *ELEMFILE, int *filename_len);
 void define_mesh_geometry_test_c(void);
+void define_node_cavity_c(const char *NODEFILE, int *filename_len);
 void define_node_geometry_c(const char *NODEFILE, int *filename_len);
 void define_node_geometry_2d_c(const char *NODEFILE, int *filename_len);
+void define_node_tissue_c(const char *NODEFILE, int *filename_len);
 void define_data_geometry_c(const char *DATAFILE, int *filename_len);
 void import_node_geometry_2d_c(const char *NODEFILE, int *filename_len);
 void import_ply_triangles_c(const char *ply_file, int *filename_len);
@@ -51,11 +55,23 @@ void define_1d_elements(const char *ELEMFILE)
   define_1d_elements_c(ELEMFILE, &filename_len);
 }
 
+void define_elem_cavity(const char *ELEMFILE)
+{
+  int filename_len = (int)strlen(ELEMFILE);
+  define_elem_cavity_c(ELEMFILE, &filename_len);
+}
+
 void define_elem_geometry_2d(const char *ELEMFILE, const char *SF_OPTION)
 {
   int filename_len = (int)strlen(ELEMFILE);
   int sf_option_len = (int)strlen(SF_OPTION);
   define_elem_geometry_2d_c(ELEMFILE, &filename_len, SF_OPTION, &sf_option_len);
+}
+
+void define_elem_tissue(const char *ELEMFILE)
+{
+  int filename_len = (int)strlen(ELEMFILE);
+  define_elem_tissue_c(ELEMFILE, &filename_len);
 }
 
 void define_mesh_geometry_test()
@@ -69,10 +85,22 @@ void define_node_geometry(const char *NODEFILE)
   define_node_geometry_c(NODEFILE, &filename_len);
 }
 
+void define_node_cavity(const char *NODEFILE)
+{
+  int filename_len = (int)strlen(NODEFILE);
+  define_node_cavity_c(NODEFILE, &filename_len);
+}
+
 void define_node_geometry_2d(const char *NODEFILE)
 {
   int filename_len = (int)strlen(NODEFILE);
   define_node_geometry_2d_c(NODEFILE, &filename_len);
+}
+
+void define_node_tissue(const char *NODEFILE)
+{
+  int filename_len = (int)strlen(NODEFILE);
+  define_node_tissue_c(NODEFILE, &filename_len);
 }
 
 void define_data_geometry(const char *DATAFILE)

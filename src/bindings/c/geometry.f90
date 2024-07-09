@@ -78,6 +78,24 @@ contains
 !
 !###################################################################################
 !
+  subroutine define_elem_cavity_c(ELEMFILE, filename_len) bind(C, name="define_elem_cavity_c")
+    use iso_c_binding, only: c_ptr
+    use utils_c, only: strncpy
+    use other_consts, only: MAX_FILENAME_LEN
+    use geometry, only: define_elem_cavity
+    implicit none
+
+    integer,intent(in) :: filename_len
+    type(c_ptr), value, intent(in) :: ELEMFILE
+    character(len=MAX_FILENAME_LEN) :: filename_f
+
+    call strncpy(filename_f, ELEMFILE, filename_len)
+    call define_elem_cavity(filename_f)
+
+  end subroutine define_elem_cavity_c
+!
+!###################################################################################
+!
   subroutine define_elem_geometry_2d_c(ELEMFILE, filename_len, SF_OPTION, sf_option_len) bind(C, name="define_elem_geometry_2d_c")
     use iso_c_binding, only: c_ptr
     use utils_c, only: strncpy
@@ -98,6 +116,24 @@ contains
 !
 !###################################################################################
 !
+  subroutine define_elem_tissue_c(ELEMFILE, filename_len) bind(C, name="define_elem_tissue_c")
+    use iso_c_binding, only: c_ptr
+    use utils_c, only: strncpy
+    use other_consts, only: MAX_FILENAME_LEN
+    use geometry, only: define_elem_tissue
+    implicit none
+
+    integer,intent(in) :: filename_len
+    type(c_ptr), value, intent(in) :: ELEMFILE
+    character(len=MAX_FILENAME_LEN) :: filename_f
+
+    call strncpy(filename_f, ELEMFILE, filename_len)
+    call define_elem_tissue(filename_f)
+
+  end subroutine define_elem_tissue_c
+!
+!###################################################################################
+!
 !*define_mesh_geometry_test:*
   subroutine define_mesh_geometry_test_c() bind(C, name="define_mesh_geometry_test_c")
     use geometry, only: define_mesh_geometry_test
@@ -106,6 +142,26 @@ contains
     call define_mesh_geometry_test
 
   end subroutine define_mesh_geometry_test_c
+!
+!###################################################################################
+!
+  subroutine define_node_cavity_c(NODEFILE, filename_len) bind(C, name="define_node_cavity_c")
+
+    use iso_c_binding, only: c_ptr
+    use utils_c, only: strncpy
+    use other_consts, only: MAX_FILENAME_LEN
+    use geometry, only: define_node_cavity
+    implicit none
+
+    integer,intent(in) :: filename_len
+    type(c_ptr), value, intent(in) :: NODEFILE
+    character(len=MAX_FILENAME_LEN) :: filename_f
+
+    call strncpy(filename_f, NODEFILE, filename_len)
+    call define_node_cavity(filename_f)
+
+  end subroutine define_node_cavity_c
+
 !
 !###################################################################################
 !
@@ -126,6 +182,26 @@ contains
     call define_node_geometry(filename_f)
 
   end subroutine define_node_geometry_c
+
+!
+!###################################################################################
+!
+  subroutine define_node_tissue_c(NODEFILE, filename_len) bind(C, name="define_node_tissue_c")
+
+    use iso_c_binding, only: c_ptr
+    use utils_c, only: strncpy
+    use other_consts, only: MAX_FILENAME_LEN
+    use geometry, only: define_node_tissue
+    implicit none
+
+    integer,intent(in) :: filename_len
+    type(c_ptr), value, intent(in) :: NODEFILE
+    character(len=MAX_FILENAME_LEN) :: filename_f
+
+    call strncpy(filename_f, NODEFILE, filename_len)
+    call define_node_tissue(filename_f)
+
+  end subroutine define_node_tissue_c
 
 !
 !###################################################################################

@@ -36,6 +36,8 @@ module mesh_utilities
        hermite, &
        inlist, &
        linear, &
+       local_cavity_node, &
+       local_tissue_node, &
        make_plane_from_3points, &
        mesh_a_x_eq_b, &
        point_internal_to_surface, &
@@ -320,6 +322,50 @@ contains
     
   end subroutine group_elem_by_parent
 
+!!!##############################################################################################
+
+  function local_cavity_node(node)
+    integer,intent(in) :: node
+    integer :: local_cavity_node,np
+    logical :: found
+
+    found = .false.
+    np = 1
+    
+    do while(.not.found.and.np.le.cavity_num_nodes)
+       if(cavity_nodes(np).eq.node)then
+          found = .true.
+          local_cavity_node = np
+       else
+          np = np + 1
+       endif
+    enddo
+    if(.not.found) local_cavity_node = 0
+    
+  end function local_cavity_node
+  
+!!!##############################################################################################
+
+  function local_tissue_node(node)
+    integer,intent(in) :: node
+    integer :: local_tissue_node,np
+    logical :: found
+
+    found = .false.
+    np = 1
+    
+    do while(.not.found.and.np.le.tissue_num_nodes)
+       if(tissue_nodes(np).eq.node)then
+          found = .true.
+          local_tissue_node = np
+       else
+          np = np + 1
+       endif
+    enddo
+    if(.not.found) local_tissue_node = 0
+    
+  end function local_tissue_node
+  
 !!!###############################################################
   
   subroutine make_plane_from_3points(NORML,NORMALTYPE,POINT1,POINT2,POINT3)

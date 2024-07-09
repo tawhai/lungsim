@@ -1,37 +1,277 @@
 module lung_mechanics
 
-  ! this module is based on legacy code from CMISS (Continuum Mechanics, Image analysis, Signal processing and System identification).!
-  ! [see www.cmiss.org]. it provides convenient and quick functionality for simulating soft tissue deformation of a hyper-elastic
-  ! compressible body with an isotropic material law inside a contact surface. This is strictly 3D rectangular cartesian with 
-  ! quadratic Lagrange basis functions. 
-  ! simulation packages with more generalised capability should be used if additional functionality is needed.
-
-  ! most of the original subroutine and array names are retained for ease of comparison with the legacy code
+  !*Brief Description:* This module handles all code specific to
+  ! simulating ventilation
+  !
+  !*LICENSE:*
+  !TBC
+  !
+  !
+  !*Full Description:*
+  !
+  ! This module is based on legacy code from CMISS (Continuum Mechanics, Image analysis,
+  ! Signal processing and System identification) [see www.cmiss.org]. it provides convenient
+  ! and quick functionality for simulating soft tissue deformation of a hyper-elastic
+  ! compressible body with an isotropic material law inside a contact surface. This is
+  ! strictly 3D rectangular cartesian with quadratic Lagrange basis functions. 
+  ! simulation packages with more generalised capability should be used if additional
+  ! functionality is needed. most of the original subroutine and array names are retained
+  ! for ease of comparison with the legacy code
   
   use arrays
   use precision
   
   implicit none
-  
-!  private
-  !  public
-  
+
+  !Module parameters
   integer,parameter :: n_basis = 2         ! # of basis functions for lung, cavity
   integer,parameter :: n_dirn = 3          ! max # of xi directions
   integer,parameter :: n_gauss = 3         ! # of Gauss points in a direction; maximum 3
   integer,parameter :: n_points = 27       ! max # of nodes in lung elements
   integer,parameter :: nb_lung = 1,nb_cavity = 2, nind_lung = 1, nind_cavity = 2
 
+  !Module types
+
+  !Module variables
   integer :: inp(n_points,n_dirn,n_basis)
   real(dp) :: pg(n_points,11,n_gauss**3) ! for this problem
   real(dp) :: wg(n_gauss**3)
   real(dp) :: xig(n_dirn,n_gauss**3)
+
+  !Interfaces
+  private
+  public deform_tissue_in_cavity
   
 contains
 
 !!!##############################################################################################
 
+  subroutine deform_tissue_in_cavity(nsteps, posture, outfile)
+
+    implicit none
+    
+    integer,intent(in) :: nsteps
+    character,intent(in) :: outfile*(*), posture*(*)
+    
+    real(dp),parameter :: errmax = 1.0e-5_dp
+    real(dp) :: add_gravity,density,factor 
+    character :: char_int*(3),groupname*50,filename*100
+    integer,parameter :: niterate =20
+    integer,allocatable :: ant_edge_nodes(:),diaphragm_nodes(:),external_nodes(:),nelist(:),nplist(:), &
+         lateral_cavity_elems(:),lateral_nodes(:),medial_nodes(:),diaphragm_edge_nodes(:)
+    integer,allocatable :: diaphragm_elems(:),medial_cavity_elems(:),map_tissue_cavity(:,:), &
+         post_edge_nodes(:)
+    integer :: n,nonode,np,i,j,num_increment_gravity
+    integer,allocatable :: apex_nodes(:),fix_in_xyz(:),fix_in_y(:),fix_in_z(:)
+    integer :: subset(11)
+    logical :: displace_surface = .false.
+    data subset /7,8,9,10,16,17,18,23,24,29,30/
+
+!!! group nodes and elements on the tissue volume mesh
+    call get_external_tissue_nodes(external_nodes, 'all')
+    !call get_external_tissue_nodes(medial_nodes, 'xi2_1')
+    call get_external_nodes_subset(subset,medial_nodes, 'xi2_1')
+    call get_external_tissue_nodes(lateral_nodes, 'xi2_0')
+    call get_external_tissue_nodes(diaphragm_nodes, 'xi3_0')
+    call get_external_tissue_nodes(apex_nodes, 'xi3_1')
+    
+    call get_edge_tissue_nodes(diaphragm_edge_nodes, 'xi3_0')
+    call get_edge_tissue_nodes(ant_edge_nodes, 'xi1_1')
+    call get_edge_tissue_nodes(post_edge_nodes, 'xi1_0')
+    
+    allocate(fix_in_y(count(ant_edge_nodes.ne.0)+count(post_edge_nodes.ne.0)))
+    n = count(ant_edge_nodes.ne.0)
+    fix_in_y(1:n) = ant_edge_nodes(1:n)
+    forall(j=1:count(post_edge_nodes.ne.0)) fix_in_y(n+j) = post_edge_nodes(j)
+    
+    allocate(fix_in_z(count(diaphragm_nodes.ne.0)+count(apex_nodes.ne.0)))
+    n = count(diaphragm_nodes.ne.0)
+    fix_in_z(1:n) = diaphragm_nodes(1:n)
+    forall(j=1:count(apex_nodes.ne.0)) fix_in_z(n+j) = apex_nodes(j)
+    
+    allocate(fix_in_xyz(count(apex_nodes.ne.0)+2))
+    n = count(apex_nodes.ne.0)
+    fix_in_xyz(1:n) = apex_nodes(1:n)
+    fix_in_xyz(n+1) = 1
+    fix_in_xyz(n+2) = 5
+        
+!!! group nodes and elements on the pleural surface mesh
+    map_tissue_cavity = map_tissue_to_cavity_elems()
+    medial_cavity_elems = get_cavity_elems(map_tissue_cavity, 'xi2_1')
+    diaphragm_elems = get_cavity_elems(map_tissue_cavity, 'xi3_0')
+    lateral_cavity_elems = get_cavity_elems(map_tissue_cavity, 'xi2_0')
+    
+    allocate(nelist(tissue_num_elems))
+    allocate(nplist(tissue_num_nodes))
+    
+!!! SET UP LUNG SOFT TISSUE MECHANICS
+!!! STORE MESH AS INITIAL CONDITION & SCALE MESH TO REFERENCE SIZE
+    density = mechanics_properties%densityFRC/(mechanics_properties%ref_pct/100.0_dp)
+    call setup_mechanics(density,mechanics_properties%sedf_a, &
+         mechanics_properties%sedf_b,mechanics_properties%sedf_c,mechanics_properties%scale_0)
+    
+    ! this should change stiffness?
+    !  ce(1,1:10) = 7500.0_dp
+     
+!!! EXPORT UNDEFORMED NODES
+    filename = trim(outfile) //'_reference'
+    groupname = 'left_lung'
+    call exnode_3d(tissue_num_nodes,tissue_nodes,filename,groupname)
+    
+!!! DEFINE FIXED DISPLACEMENTS AND ZERO FORCES AT SURFACE
+    call fix_external(external_nodes)
+    
+!!! SOLVE WITH ZERO GRAVITY TO GET INITIAL FORCES
+    factor = 1.0_dp
+    call solve_elasticity(niterate,errmax,factor)
+    
+!!! EXPORT LUNG NODES DEFORMED
+    filename = trim(outfile) // '_deform_solve_0'
+    call exnode_deform(tissue_num_nodes,tissue_nodes,filename,groupname)
+    filename = trim(outfile) // '_output_0'
+    call output_mechanics_results(outfile)
+    
+    add_gravity = 9810.0_dp / real(nsteps)
+    gravity = 0.0_dp
+
+    num_increment_gravity = nsteps
+    
+    do i = 1,nsteps
+       write(*,'('' STEP'',i6,'' OF'',i6)') i, num_increment_gravity
+       write(*,'('' --------------------------------------'')')
+       
+       if(i.lt.10)then
+          write(char_int,'(i1)') i
+       else if(i.lt.100)then
+          write(char_int,'(i2)') i
+       else
+          write(char_int,'(i3)') i
+       endif
+       
+!!!    PROJECT SURFACE OF LUNG TO THE CAVITY
+       call project_lung_to_cavity(medial_cavity_elems,medial_nodes,'no_edge')
+       call project_lung_to_cavity(lateral_cavity_elems,lateral_nodes,'no_edge')
+       
+!!!    EXPORT LUNG NODES DEFORMED
+       filename = trim(outfile) // '_deform_project_' // trim(char_int)
+       call exnode_deform(tissue_num_nodes,tissue_nodes,filename,groupname)
+       
+!!!    SOLVE WITH FIXED SURFACE GEOMETRY
+       factor = 0.0_dp
+       call solve_elasticity(niterate,errmax,factor)
+       
+!!!    STORE SOLUTION GEOMETRY AND FORCES IN FIELDS
+       do nonode = 1,tissue_num_nodes
+          np = tissue_nodes(nonode)
+          xp(6:8,np) = yp(nynp(1:3,np,0,1),4) ! store the forces
+       enddo
+       
+!!!    REMOVE MOST DISPLACEMENT BOUNDARY CONDITIONS
+       select case(trim(posture))
+       case('upright')
+          call fix_xyz(fix_in_xyz,fix_in_xyz,fix_in_z,external_nodes)
+          gravity(3) = gravity(3) + add_gravity
+       case('supine')
+          call fix_xyz(fix_in_y,fix_in_y,fix_in_y,external_nodes)
+          gravity(2) = gravity(2) - add_gravity
+       case('prone')
+          call fix_xyz(fix_in_y,fix_in_y,fix_in_y,external_nodes)
+          gravity(2) = gravity(2) + add_gravity
+       end select
+       
+!!!    COPY FIELDS TO UPDATE FORCES'
+       do nonode = 1,size(external_nodes)
+          np = external_nodes(nonode)
+          yp(nynp(1:3,np,0,2),2) = xp(6:8,np) ! external nodes, force, nc==2 for forces
+       enddo
+       
+!!!    SOLVE FOR GRAVITY INCREMENT WITH FIXED SURFACE FORCES'
+       factor = 1.0_dp ! original 1.0
+       call solve_elasticity(niterate,errmax,factor)
+       
+!!!    EXPORT LUNG NODES DEFORMED'
+       filename = trim(outfile) // '_deform_gravity_' // trim(char_int)
+       call exnode_deform(tissue_num_nodes,tissue_nodes,filename,groupname)
+       filename = trim(outfile) // '_output' // trim(char_int)
+       call output_mechanics_results(filename)
+       write(*,*) filename
+       
+!!!    DEFINE FIXED DISPLACEMENTS AND FORCES AT SURFACE'
+       call fix_external(external_nodes)
+       
+    enddo
+    
+    if(displace_surface)then
+       
+       do i = num_increment_gravity,num_increment_gravity + 5
+          
+          if(i.lt.10)then
+             write(char_int,'(i1)') i
+          else if(i.lt.100)then
+             write(char_int,'(i2)') i
+          else
+             write(char_int,'(i3)') i
+          endif
+          
+          xp(3,438:441) = xp(3,438:441) - 1.0_dp
+          
+          write(*,*) 'PROJECT SURFACE OF LUNG TO THE CAVITY'
+          call project_lung_to_cavity(medial_cavity_elems,medial_nodes,'no_edge')
+          call project_lung_to_cavity(lateral_cavity_elems,lateral_nodes,'no_edge')
+          
+          write(*,*) 'EXPORT LUNG NODES DEFORMED'
+          filename = outfile//'_deform_project_'//trim(char_int)
+          call exnode_deform(tissue_num_nodes,tissue_nodes,filename,groupname)
+          
+          write(*,*) 'SOLVE WITH FIXED SURFACE GEOMETRY'
+          factor = 0.0_dp
+          call solve_elasticity(niterate,errmax,factor)
+          
+          write(*,*) 'STORE SOLUTION GEOMETRY AND FORCES IN FIELDS'
+          do nonode = 1,tissue_num_nodes
+             np = tissue_nodes(nonode)
+             xp(6:8,np) = yp(nynp(1:3,np,0,1),4) ! store the forces
+          enddo
+          
+          write(*,*) 'REMOVE MOST DISPLACEMENT BOUNDARY CONDITIONS'
+          select case(trim(posture))
+          case('upright')
+             call fix_xyz(fix_in_xyz,fix_in_xyz,fix_in_z,external_nodes)
+          case('supine')
+             call fix_xyz(fix_in_y,fix_in_y,fix_in_y,external_nodes)
+          case('prone')
+             call fix_xyz(fix_in_y,fix_in_y,fix_in_y,external_nodes)
+          end select
+          
+          write(*,*) 'COPY FIELDS TO UPDATE FORCES'
+          do nonode = 1,140
+             np = external_nodes(nonode)
+             yp(nynp(1:3,np,0,2),2) = xp(6:8,np) ! external nodes, force, nc==2 for forces
+          enddo
+          
+          write(*,*) 'SOLVE FOR GRAVITY INCREMENT WITH FIXED SURFACE FORCES'
+          factor = 1.0_dp ! original 1.0
+          call solve_elasticity(niterate,errmax,factor)
+          
+          write(*,*) 'EXPORT LUNG NODES DEFORMED'
+          filename = outfile//'_deform_gravity_'//trim(char_int)
+          call exnode_deform(tissue_num_nodes,tissue_nodes,filename,groupname)
+          filename = outfile//'_output'//trim(char_int)
+          call output_mechanics_results(filename)
+          
+          write(*,*) 'DEFINE FIXED DISPLACEMENTS AND FORCES AT SURFACE'
+          call fix_external(external_nodes)
+       enddo
+       
+    endif
+    
+  end subroutine deform_tissue_in_cavity
+  
+!!!##############################################################################################
+
   subroutine problem_setup
+
+    implicit none
 
     integer :: mm,nn
     integer :: i,j,k
@@ -73,13 +313,15 @@ contains
   
   subroutine setup_gauss_quad(nb)
 
+    implicit none
+
     ! (CMISS GAUSS1) Define Gaussian quadrature coordinates xig and weights wg.
     ! Evaluate basis function Gauss point array pg
     
     !     Parameter List
     integer :: nb
     !     Local Variables
-    integer :: I,J,K,ng,ng1,ng2,ng3,nitb,nn,nu
+    integer :: I,J,K,ng,nitb,nn,nu
     real(dp) :: d(3,3),w(3,3),xi(3),xigg(3,3,3,3)
 
     data w/ 1.0_dp, 0.0_dp, 0.0_dp, 0.50_dp, 0.5_dp, 0.0_dp, 0.2777777777777780_dp, &
@@ -113,304 +355,9 @@ contains
 
 !!!##############################################################################################
 
-  subroutine define_node_tissue(filename)
-    character :: filename*(*)
-    integer :: nonode,np
-    character :: readfile*(100)
-
-    if(index(filename, ".lsnode")>0)then ! full filename is given
-       readfile = trim(filename)
-    else! append correct extension
-       readfile = trim(filename)//'.lsnode'
-    endif
-    
-    open(10, file = readfile, status = 'old')
-    
-    read(unit = 10, fmt =  *) tissue_num_nodes
-
-    if(allocated(tissue_nodes)) deallocate(tissue_nodes)
-    allocate(tissue_nodes(tissue_num_nodes))
-    if(allocated(tissue_xyz)) deallocate(tissue_xyz)
-    allocate(tissue_xyz(3,tissue_num_nodes))
-    allocate(xp(njm,tissue_num_nodes))
-
-    !npm = tissue_num_nodes
-       
-    do nonode = 1,tissue_num_nodes
-       read(unit = 10, fmt =  *) np,xp(1:3,nonode)
-       tissue_xyz(1:3,nonode) = xp(1:3,nonode) ! different storage
-       tissue_nodes(nonode) = np
-    enddo                     ! np
-      
-    close(10)
-    
-  end subroutine define_node_tissue
-
-!!!##############################################################################################
-
-  subroutine define_node_cavity(filename)
-    character :: filename*(*)
-    integer :: nonode,np
-    real(dp) :: coords(3)
-    character :: readfile*(100)
-
-    if(index(filename, ".lsnode")>0)then ! full filename is given
-       readfile = trim(filename)
-    else! append correct extension
-       readfile = trim(filename)//'.lsnode'
-    endif
-    
-    open(10, file = readfile, status = 'old')
-    
-    read(unit = 10, fmt =  *) cavity_num_nodes
-
-    if(allocated(cavity_nodes)) deallocate(cavity_nodes)
-    allocate(cavity_nodes(cavity_num_nodes))
-    allocate(xp_cavity(njm,cavity_num_nodes))
-       
-    do nonode = 1,cavity_num_nodes
-       read(unit = 10, fmt =  *) np,coords(1:3) !xp(1,np),xp(2,np),xp(3,np)
-       xp_cavity(1:3,nonode) = coords(1:3)
-       cavity_nodes(nonode) = np
-    enddo
-      
-    close(10)
-
-  end subroutine define_node_cavity
-  
-!!!##############################################################################################
-
-  subroutine define_elem_tissue(filename)
-    character :: filename*(*)
-    !     Local Variables
-    integer :: centre_nodes(6),i,ne,nodelist(27),noelem,noelem2, &
-         nn,np,npc,num_repeats
-    integer,allocatable :: elems_in(:,:)
-    character :: readfile*(100)
-
-    centre_nodes = (/13,15,11,17,5,23/)
-    if(index(filename, ".lselem")>0)then ! full filename is given
-       readfile = trim(filename)
-    else! append correct extension
-       readfile = trim(filename)//'.lselem'
-    endif
-    
-    open(10, file = readfile, status = 'old')
-    read(unit = 10, fmt =  *) tissue_num_elems
-    
-    if(allocated(tissue_elems))then
-       deallocate(tissue_elems)
-       deallocate(tissue_elem_nodes)
-       deallocate(num_adjacent)
-    endif
-    allocate(tissue_elems(tissue_num_elems))
-    allocate(tissue_elem_nodes(27,tissue_num_elems))
-    allocate(num_adjacent(tissue_num_nodes))
-    allocate(elems_in(0:10,tissue_num_nodes))
-    allocate(npne(nnm,nbm,tissue_num_elems))
-    allocate(ce(nmm,tissue_num_elems))
-    allocate(material_at_gp(4,ngm,tissue_num_elems))
-    allocate(yg(2,ngm,tissue_num_elems))
-
-    num_adjacent = 0
-    elems_in = 0
-       
-    do noelem = 1,tissue_num_elems
-       !     read the element and its nodes
-       read(unit = 10, fmt =  *) ne,nodelist(1:27)
-       npne(:,1,ne) = nodelist(:)
-       tissue_elems(noelem) = ne
-       do nn = 1,27
-          np = local_tissue_node(nodelist(nn))
-          tissue_elem_nodes(nn,noelem) = np
-          num_adjacent(np) = num_adjacent(np) + 1
-       enddo
-    enddo                     ! noelem
-
-    close(10)
-
-    ! adjust the number of adjacent elements for nodes that are repeated
-    do noelem = 1,tissue_num_elems
-       do i = 1,6 ! for each face
-          nn = centre_nodes(i)
-          npc = tissue_elem_nodes(nn,noelem)
-          if(count(tissue_elem_nodes(:,noelem).eq.npc).gt.1)then
-             ! the centre node is repeated, must be a collapsed element
-             num_repeats = 0
-             do noelem2 = 1,tissue_num_elems
-                if(count(tissue_elem_nodes(:,noelem2).eq.npc).gt.1) &
-                     num_repeats = num_repeats + 1
-             enddo
-             if(num_repeats.ge.2) num_adjacent(npc) = 1
-          endif
-       enddo
-    enddo
-
-    deallocate(elems_in)
-   
-  end subroutine define_elem_tissue
-  
-!!!##############################################################################################
-
-  subroutine define_elem_cavity(filename)
-    character :: filename*(*)
-    !     Local Variables
-    integer :: i,ne,noelem,temp_npne(9)
-    character :: readfile*(100)
-
-    if(index(filename, ".lselem")>0)then ! full filename is given
-       readfile = trim(filename)
-    else! append correct extension
-       readfile = trim(filename)//'.lselem'
-    endif
-    
-    open(10, file = readfile, status = 'old')
-    read(unit = 10, fmt =  *) cavity_num_elems
-    
-    if(allocated(cavity_elems)) deallocate(cavity_elems)
-    allocate(cavity_elems(cavity_num_elems))
-    allocate(npne_cavity(nnm,cavity_num_elems))
-       
-    do noelem = 1,cavity_num_elems
-       read(unit = 10, fmt =  *) ne,temp_npne(:) 
-       do i = 1,9
-          npne_cavity(i,noelem) = local_cavity_node(temp_npne(i))
-       enddo
-       cavity_elems(noelem) = ne
-    enddo ! noelem
-    close(10)
-    
-  end subroutine define_elem_cavity
-  
-!!!##############################################################################################
-
-  subroutine isort(n,idata)
-
-!###    ISORT sorts N integer IDATA values into a non-decreasing
-!###    sequence using ISHELLSORT if N<50 or IHEAPSORT if N>50 as
-!###    recommended by numerical recipes.
-
-    !     Parameter List
-    integer :: IDATA(*),N
-
-    if(N.LE.50) then
-       call ISHELLSORT(N,IDATA)
-    else
-       call IHEAPSORT(N,IDATA)
-    endif
-
-  end subroutine isort
-
-!!!##############################################################################################
-
-  subroutine iheapsort(n,ra)
-
-    !###    Numerical recipes integer heap sort algorithm. Use when N > 50
-
-    !     Parameter List
-    integer :: n,ra(n)
-    !     Local Variables
-    integer :: i,ir,j,l,rra
-
-    if(N.LT.2) RETURN
-    
-    L = N/2+1
-    IR = N
-10  CONTINUE
-    if(L.GT.1) then
-       L = L-1
-       RRA = RA(L)
-    else
-       RRA = RA(IR)
-       RA(IR) = RA(1)
-       IR = IR-1
-       if(IR.EQ.1) then
-          RA(1) = RRA
-          RETURN
-       endif
-    endif
-    I = L
-    J = L+L
-20  if(J.LE.IR) then
-       if(J.LT.IR) then
-          if(RA(J).LT.RA(J+1)) J = J+1
-       endif
-       if(RRA.LT.RA(J)) then
-          RA(I) = RA(J)
-          I = J
-          J = J+J
-       else
-          J = IR+1
-       endif
-       GOTO 20
-    endif
-    RA(I) = RRA
-    GOTO 10
-  end subroutine iheapsort
-
-!!!##############################################################################################
-
-  subroutine ishellsort(n,a)
-
-    !###    Numerical recipes integer shell sort algorithm. Use when N < 50
-
-    !     Parameter List
-    integer :: n,a(n)
-    !     Local Variables
-    integer :: i,j,inc,v
-
-    INC = 1
-1   INC = 3*INC+1
-    if(INC.LE.N) GOTO 1
-2   CONTINUE
-    INC = INC/3
-    do I = INC+1,N
-       V = A(I)
-       J = I
-3      if(A(J-INC).GT.V)then
-          A(J) = A(J-INC)
-          J = J-INC
-          if(J.LE.INC) GOTO 4
-          GOTO 3
-       endif
-4      A(J) = V
-    enddo
-    if(INC.GT.1) GOTO 2
-
-  end subroutine ishellsort
-
-!!!##############################################################################################
-
-  subroutine ilistrmdup(n,idata)
-
-    !###    ILISTRMDUP sorts N integer IDATA values into a non-decreasing
-    !###    sequence using IHEAPSORT (N>50) or ISHELLSORT (N>50) and then 
-    !###    removes all duplicates efrom the list. On exit N contains the 
-    !###    number of unique elements in the list.
-
-    !     Parameter List
-    integer :: idata(*),n
-    !     Local Variables
-    integer :: index,nolist
-
-    call ISORT(N,IDATA)
-
-    index = 0
-    do nolist = 2,N
-       if(IDATA(nolist).EQ.IDATA(nolist-1)) then
-          index = index+1
-       else
-          IDATA(nolist-index) = IDATA(nolist)
-       endif
-    enddo !nolist
-    
-    N = N-index
-
-  end subroutine ilistrmdup
-
-!!!##############################################################################################
-
   subroutine exnode_3d(num_list,nplist,FILE,NODE_NAME)
+
+    implicit none
 
     !     Parameter List
     integer :: num_list,nplist(:)
@@ -452,6 +399,8 @@ contains
 !!!##############################################################################################
 
   subroutine setup_mechanics(density,a,b,c,scale)
+
+    implicit none
 
     real(dp),intent(in) :: a,b,c,density,scale
     integer :: nc,ne,nj_pressure,np
@@ -516,6 +465,8 @@ contains
 
   subroutine setup_mechs_ny_dep
 
+    implicit none
+
     !     Local Variables
     integer :: nc,nh,np,nrc,ny,ny_start(0:2,3),ny_max
 
@@ -563,6 +514,8 @@ contains
 !!!##############################################################################################
 
   subroutine fix_external(fix_group)
+
+    implicit none
     
     !     Parameter List
     integer,intent(in) :: fix_group(:)
@@ -592,6 +545,8 @@ contains
 !!!##############################################################################################
 
   subroutine fix_disp_xyz(n_fix_xy,fix_xy,n_fix_z,fix_z)
+
+    implicit none
     
     !     Parameter List
     integer,intent(in) :: n_fix_xy,n_fix_z,fix_xy(:),fix_z(:)
@@ -630,6 +585,8 @@ contains
 !!!##############################################################################################
 
   subroutine fix_xyz(fix_x,fix_y,fix_z,fix_force)
+
+    implicit none
 
     !     Parameter List
     integer ::  n_fix_x,n_fix_y,n_fix_z,n_force,fix_x(:),fix_y(:),fix_z(:),fix_force(:)
@@ -679,6 +636,8 @@ contains
 !!!##############################################################################################
 
   subroutine get_edge_tissue_nodes(edge_nodes,option)
+
+    implicit none
     
     integer,allocatable :: edge_nodes(:)
     character(len = *) :: option
@@ -755,6 +714,8 @@ contains
 
   subroutine get_external_nodes_subset(subset,external_nodes,option)
 
+    implicit none
+
     integer :: subset(:)
     integer,allocatable :: external_nodes(:)
     character(len=*) :: option
@@ -829,6 +790,8 @@ contains
 !!!##############################################################################################
 
   subroutine get_external_tissue_nodes(external_nodes,option)
+
+    implicit none
     
     integer,allocatable :: external_nodes(:)
     character(len = *) :: option
@@ -902,6 +865,8 @@ contains
 !!!##############################################################################################
 
   subroutine get_external_tissue_elems(external_elems,option)
+
+    implicit none
     
     integer,allocatable :: external_elems(:)
     character(len = *) :: option
@@ -1066,6 +1031,8 @@ contains
 !!!##############################################################################################
 
   subroutine zpyp(iy)
+
+    implicit none
     
     !###    ZPYP transfers global node parameters ZP(nh,np,nc) to global vector
     !###    YP(ny,iy).
@@ -1091,6 +1058,8 @@ contains
 
   subroutine YPZP(iy)
 
+    implicit none
+
     !###    YPZP transfers global vector YP(ny,iy) to global node parameters
     !###    ZP(nh,np,nc).
 
@@ -1113,6 +1082,8 @@ contains
 !!!##############################################################################################
 
   subroutine ipsolv
+
+    implicit none
 
     !###    IPSOLV defines solution parameters
 
@@ -1152,6 +1123,8 @@ contains
 
   subroutine evpress
 
+    implicit none
+
     !C###    EVPRESS evaluates effective pressures at nodes for a
     !C###    finite deformation elasticity problem. This has been implemented 
     !C###    for compressible mechanics, where an effective hydrostatic
@@ -1188,6 +1161,8 @@ contains
 !!!##############################################################################################
 
   subroutine xpxe(nb,ne,xe)
+
+    implicit none
     
     !     Parameter List
     integer :: nb,ne
@@ -1200,7 +1175,7 @@ contains
        do nn = 1,nnt(nb)
           np = npne(nn,nb,ne)
           ns = ns+1
-          XE(ns,nj) = XP(nj,np)
+          xe(ns,nj) = XP(nj,np)
        enddo
     enddo                     !njj
 
@@ -1209,6 +1184,8 @@ contains
 !!!##############################################################################################
 
   subroutine xpxe_cavity(nb,ne,xe)
+
+    implicit none
     
     !     Parameter List
     integer :: nb,ne
@@ -1230,6 +1207,8 @@ contains
 !!!##############################################################################################
 
   subroutine zpze(nb,ne,ze)
+
+    implicit none
 
     !###    zpze transfers global node parameters ZP(nh,np,nc) to element node
     !###    parameters ZE(ns,nhx) for nc.
@@ -1255,6 +1234,8 @@ contains
 
   subroutine CPCG(ne)
 
+    implicit none
+
     !###    CPCG transfers element parameters CE(il,ne) in element ne to return Gauss pt values
     !###    CG(il,ng). 
 
@@ -1264,7 +1245,6 @@ contains
     integer :: il
 
     cg = 0.0_dp
-!    forall(il=1:4) CG(il,:) = CE(il,ne)
     forall(il=1:4) CG(il,:) = material_at_gp(il,:,ne)
 
   end subroutine CPCG
@@ -1273,9 +1253,11 @@ contains
 
   subroutine ZETX50(nb,ng,RGX2D,RGZ,RGZ2D,TC,TG,TN,xe,xg,ze,zg)
 
+    implicit none
+
     !###    ZETX50 calculates 2nd Piola-Kirchhoff, Cauchy and  Nominal
     !###    stresses with respect to 'Reference' or 'Fibre' coords
-    !###    (as specified by COORDS) at position XI in current element
+    !###    (as specified by COORDS) at position xi in current element
     !###    if ng=0 else at Gauss point ng.  STRESSTYPE ('Total', 'Passive'
     !###    or 'Active') denotes the components of stress to be computed.
 
@@ -1297,10 +1279,10 @@ contains
     !    Local Variables
     integer :: k,mi,mix,mz,ni,nitb,nix,nz
     integer,parameter :: ncw=35 !CW must be dimen.d the same size as CE array
-    real(dp) :: AZ,AZL(3,3),AZU(3,3),CW(NCW),DETERM,DET_DZDX, &
-         DXDZ(3,3),DXIXJ(3,3),DXIXN(3,3),DXIZN(3,3),DZDX(3,3), &
-         DZNXI(3,3),GXL(3,3),GXU(3,3),GZ,GZL(3,3), &
-         GZU(3,3),RI3,RWX,SUM
+    real(dp) :: AZ,AZL(3,3),AZU(3,3),CW(NCW),determ,DET_DZDX, &
+         DXDZ(3,3),dxixj(3,3),dxixn(3,3),dxizn(3,3),dzdx(3,3), &
+         dznxi(3,3),GXL(3,3),GXU(3,3),GZ,GZL(3,3), &
+         GZU(3,3),RI3,RWX,sum
 
     nitb = nit(nb)
     gzu = 0.0_dp
@@ -1310,35 +1292,35 @@ contains
     !     ***     Interpolate Gauss pt geometric var.s XG and derivs wrt Xi
     call XEXG(nb,ng,xe,xg)
     !     ***   Calculate undeformed metric tensors wrt Xi (GXL,GXU) and
-    !     ***   derivatives of Xi wrt Xj (reference) coords, DXIXJ (IP=0)
-    call XGMG(0,nitb,nb,DXIXJ,GXL,GXU,RWX,xg)
+    !     ***   derivatives of Xi wrt Xj (reference) coords, dxixj (IP=0)
+    call XGMG(0,nitb,nb,dxixj,GXL,GXU,RWX,xg)
     !     ***   Calculate 2D Jacobian wrt undef coords for face integrals
     RGX2D = RWX* sqrt(GXU(3,3))
-    !     ***   Get derivs of Xi wrt undeformed Nu (body/fibre) coords,DXIXN
-    call DXIDXM(nitb,DXIXN,DETERM,xg)
+    !     ***   Get derivs of Xi wrt undeformed Nu (body/fibre) coords,dxixn
+    call dxidxm(nitb,dxixn,determ,xg)
     
-    call ZEZG(0,nb,ng,DXIXJ,ze,zg)
+    call zezg(0,nb,ng,dxixj,ze,zg)
     !     ***     Calculate deformed metric tensors wrt Xi (GZL,GZU)
     call ZGMG(nb,GZ,GZL,GZU,zg)
     RGZ =  sqrt(GZ)
     !     ***     Calculate 2D Jacobian wrt def coords for face integrals
     RGZ2D =  sqrt(GZ*GZU(3,3))
-    !     Get derivs of Xi wrt deformed Nu coords, DXIZN
-    call DXIDZM(nb,ng,DXIZN,DZNXI,'Fibre',xg,ze,zg)
-    !     ***     Calculate derivs of deformed Nu wrt undeformed Nu (DZDX)
+    !     Get derivs of Xi wrt deformed Nu coords, dxizn
+    call dxidzm(nb,ng,dxizn,dznxi,xg,ze,zg)
+    !     ***     Calculate derivs of deformed Nu wrt undeformed Nu (dzdx)
     do ni = 1,nitb
        do mi = 1,nitb
-          SUM = 0.0_dp
+          sum = 0.0_dp
           do k = 1,nitb
-             SUM = SUM+DZNXI(ni,k)*DXIXN(k,mi)
+             sum = sum+dznxi(ni,k)*dxixn(k,mi)
           enddo               !k
-          DZDX(ni,mi) = SUM
+          dzdx(ni,mi) = sum
        enddo                  !mi
     enddo                     !ni
 
-    call INVERT(nitb,DZDX,DXDZ,DET_DZDX)
+    call invert(nitb,dzdx,DXDZ,DET_DZDX)
     
-    call ZEZG(1,nb,ng,DXIXN,ze,zg)
+    call zezg(1,nb,ng,dxixn,ze,zg)
     !     ***   Calculate deformed metric tensors wrt Nu (AZL,AZU)
     call ZGMG(nb,AZ,AZL,AZU,zg)
     !     ***   Get contravariant cpts of 2nd Piola-Kirchhoff stress
@@ -1349,22 +1331,22 @@ contains
     
     do mz = 1,nitb
        do nz = 1,nitb
-          SUM = 0.0_dp
+          sum = 0.0_dp
           do mix = 1,nitb
              do nix = 1,nitb
-                SUM = SUM+DZDX(mz,mix)*TG(mix,nix)*DZDX(nz,nix)
+                sum = sum+dzdx(mz,mix)*TG(mix,nix)*dzdx(nz,nix)
              enddo            !nix
           enddo               !mix
-          TC(mz,nz) = SUM/sqrt(RI3)
+          TC(mz,nz) = sum/sqrt(RI3)
        enddo                  !nz
     enddo                     !mz
     do nix = 1,nitb
        do nz = 1,nitb
-          SUM = 0.0_dp
+          sum = 0.0_dp
           do mix = 1,nitb
-             SUM = SUM+TG(nix,mix)*DZDX(nz,mix)
+             sum = sum+TG(nix,mix)*dzdx(nz,mix)
           enddo               !mix
-          TN(nix,nz) = SUM
+          TN(nix,nz) = sum
        enddo                  !nz
     enddo                   !nix
 
@@ -1373,9 +1355,11 @@ contains
 
 !!!##############################################################################################
 
-  subroutine DXIDXM(nitb,DXIXN,RG,xg)
+  subroutine dxidxm(nitb,dxixn,RG,xg)
 
-    !C###    DXIDXM evaluates derivatives (DXIXN) of Xi- wrt
+    implicit none
+
+    !C###    dxidxm evaluates derivatives (dxixn) of Xi- wrt
     !C###    undeformed Nu(fibre)-coords 
     !C###    RG returns the domain Jacobian.
     !C###    This routine assumes that XG contains
@@ -1384,39 +1368,41 @@ contains
 
     !     Parameter List
     integer :: nitb
-    real(dp) :: DXIXN(3,3),RG,xg(:,:)
+    real(dp) :: dxixn(3,3),RG,xg(:,:)
     !     Local Variables
     integer :: mjj,ni,njj
-    real(dp) :: DXRCXN(3,3),DXRCXI(3,3),DXIXRC(3,3)
+    real(dp) :: dxrcxn(3,3),dxrcxi(3,3),dxixrc(3,3)
 
-!!! Calculate dXrc/dXI
+!!! Calculate dxrc/dxi
     dxrcxi(1:3,1) = xg(1:3,2)
     dxrcxi(1:3,2) = xg(1:3,4)
     dxrcxi(1:3,3) = xg(1:3,7)
       
 !!! Compute undeformed anatomical fibre vectors wrt rc coordinates
-    call MAT_VEC(DXRCXN(1,1),DXRCXN(1,2),DXRCXN(1,3),DXRCXI)
+    call MAT_VEC(dxrcxn(1,1),dxrcxn(1,2),dxrcxn(1,3),dxrcxi)
       
-!!! Calculate dXI/dXrc
-    call INVERT(nitb,DXRCXI,DXIXRC,RG)
+!!! Calculate dxi/dXrc
+    call invert(nitb,dxrcxi,dxixrc,RG)
       
 !!! Calc derivatives of Xi wrt undeformed Nu/Wall
     dxixn = 0.0_dp
     do njj = 1,3
        do mjj = 1,3
           do ni = 1,3
-             DXIXN(ni,njj) = DXIXN(ni,njj)+DXIXRC(ni,mjj)*DXRCXN(mjj,njj)
+             dxixn(ni,njj) = dxixn(ni,njj)+dxixrc(ni,mjj)*dxrcxn(mjj,njj)
           enddo               !ni
        enddo                  !mjj
     enddo                     !njj
     
-  end subroutine DXIDXM
+  end subroutine dxidxm
 
 !!!##############################################################################################
 
   subroutine XEXG(nb,ng,xe,xg)
 
-!!! Evaluate Gauss point array XG from element node array XE at current Gauss point ng. 
+    implicit none
+
+!!! Evaluate Gauss point array XG from element node array xe at current Gauss point ng. 
 
     !     Parameter List
     integer :: nb,ng
@@ -1440,23 +1426,25 @@ contains
 
 !!!##############################################################################################
 
-  subroutine XGMG(IP,JAC,nb,DXIX,GL,GU,RGX,xg)
+  subroutine XGMG(IP,JAC,nb,dxix,GL,GU,RGX,xg)
+
+    implicit none
 
     !###    XGMG evaluates the covariant (GL) & contravariant (GU) metric
     !###    tensors wrt the Xi-coordinate system  and  the derivs  of
-    !###    the Xi-coords wrt the Xj-coords (DXIX) at current Gauss pt.
-    !**** If IP=0 DXIX contains derivatives of Xi wrt X(ref)-coords.
-    !**** If IP=1 DXIX contains derivatives of Xi wrt Nu(fibre)-coords.
-    !**** If IP=-1 DXIX is not touched.
+    !###    the Xi-coords wrt the Xj-coords (dxix) at current Gauss pt.
+    !**** If IP=0 dxix contains derivatives of Xi wrt X(ref)-coords.
+    !**** If IP=1 dxix contains derivatives of Xi wrt Nu(fibre)-coords.
+    !**** If IP=-1 dxix is not touched.
     !**** The Jacobian RG for a length,area or volume integral is returned
     !****   if JAC=1,2 or 3, respec.
 
     !     Parameter List
     integer :: IP,JAC,nb
-    real(dp) :: DXIX(3,3),GL(3,3),GU(3,3),RGX,xg(:,:)
+    real(dp) :: dxix(3,3),GL(3,3),GU(3,3),RGX,xg(:,:)
     !     Local Variables
     integer :: mi,ni,nitb,njj,nu
-    real(dp) :: D,DXXI(3,3),G
+    real(dp) :: D,dxxi(3,3),G
 
 
     !     Calculate derivatives of X wrt Xi
@@ -1464,7 +1452,7 @@ contains
     do ni = 1,nitb
        nu = 1+ni*(1+ni)/2
        do njj = 1,3
-          DXXI(njj,ni) = XG(njj,nu)
+          dxxi(njj,ni) = XG(njj,nu)
        enddo !njj
     enddo !ni
 
@@ -1476,15 +1464,15 @@ contains
     
     do mi = 1,nitb
        do ni = 1,nitb
-          GL(mi,ni) = DXXI(1,mi)*DXXI(1,ni)
+          GL(mi,ni) = dxxi(1,mi)*dxxi(1,ni)
           do njj = 2,3
-             GL(mi,ni) = GL(mi,ni)+DXXI(njj,mi)*DXXI(njj,ni)
+             GL(mi,ni) = GL(mi,ni)+dxxi(njj,mi)*dxxi(njj,ni)
           enddo !njj
        enddo !ni
     enddo !mi
 
     !     Calculate contravariant metric tensor GU(i,j)
-    call INVERT(nitb,GL,GU,G)
+    call invert(nitb,GL,GU,G)
     if(abs(G).LT.zero_tol) then
        RGX = 0.0_dp
        WRITE(*,'('' >>Warning: zero G in XGMG. G='',D12.5,' &
@@ -1493,11 +1481,11 @@ contains
        read(*,*)
     endif
 
-    !     Calculate derivs DXIX(i,j) of Xi wrt X (IP=0) or Nu (IP=1)
-    if(IP.EQ.0) then          !DXIX is based on reference coords, X
-       if(nitb.EQ.3) call INVERT(nitb,DXXI,DXIX,D)
-    else if(IP.ge.1) then     !DXIX is based on material fibre coords, Nu
-       call DXIDXM(nitb,DXIX,RGX,xg)
+    !     Calculate derivs dxix(i,j) of Xi wrt X (IP=0) or Nu (IP=1)
+    if(IP.EQ.0) then          !dxix is based on reference coords, X
+       if(nitb.EQ.3) call invert(nitb,dxxi,dxix,D)
+    else if(IP.ge.1) then     !dxix is based on material fibre coords, Nu
+       call dxidxm(nitb,dxix,RGX,xg)
     endif
     
     !     Calculate Jacobian RG
@@ -1510,14 +1498,16 @@ contains
 
 !!!##############################################################################################
 
-  subroutine ZEZG(JP,nb,ng,DXIX,ze,zg)
+  subroutine zezg(JP,nb,ng,dxix,ze,zg)
+
+    implicit none
 
     !     Parameter List
     integer :: JP,nb,ng
-    real(dp) :: DXIX(:,:),ze(:,:),zg(:,:)
+    real(dp) :: dxix(:,:),ze(:,:),zg(:,:)
     !     Local Variables
     integer :: nh,ni,NSTNAT,NU1(0:3)
-    real(dp) :: DZDXI(3),pg_temp(nsm),ze_temp(nsm)
+    real(dp) :: dzdxi(3),pg_temp(nsm),ze_temp(nsm)
 
     DATA NU1/1,2,4,7/
 
@@ -1534,41 +1524,43 @@ contains
              ZG(nh,NU1(ni)) =  dot_product(pg_temp,ze_temp) 
           enddo
           
-       else if(JP.EQ.1) then !return 1st derivs multiplied by dXIX
+       else if(JP.EQ.1) then !return 1st derivs multiplied by dxix
           do ni = 1,nit(nb)     ! 1st derivatives wrt Xi
              pg_temp(:) = pg(:,nu1(ni),ng)
              dzdxi(ni) =  dot_product(pg_temp,ze_temp)
           enddo
           !         1st derivatives wrt X
           if(nit(nb).EQ.1) then
-             ZG(nh,2) = DZDXI(1)*DXIX(1,1)
+             ZG(nh,2) = dzdxi(1)*dxix(1,1)
           else if(nit(nb).EQ.2) then
-             ZG(nh,2) = DZDXI(1)*DXIX(1,1) + DZDXI(2)*DXIX(2,1)
-             ZG(nh,4) = DZDXI(1)*DXIX(1,2) + DZDXI(2)*DXIX(2,2)
+             ZG(nh,2) = dzdxi(1)*dxix(1,1) + dzdxi(2)*dxix(2,1)
+             ZG(nh,4) = dzdxi(1)*dxix(1,2) + dzdxi(2)*dxix(2,2)
           else if(nit(nb).EQ.3) then
-             ZG(nh,2) = DZDXI(1)*DXIX(1,1) + &
-                  DZDXI(2)*DXIX(2,1) + DZDXI(3)*DXIX(3,1)
-             ZG(nh,4) = DZDXI(1)*DXIX(1,2) + &
-                  DZDXI(2)*DXIX(2,2) + DZDXI(3)*DXIX(3,2)
-             ZG(nh,7) = DZDXI(1)*DXIX(1,3) + &
-                  DZDXI(2)*DXIX(2,3) + DZDXI(3)*DXIX(3,3)
+             ZG(nh,2) = dzdxi(1)*dxix(1,1) + &
+                  dzdxi(2)*dxix(2,1) + dzdxi(3)*dxix(3,1)
+             ZG(nh,4) = dzdxi(1)*dxix(1,2) + &
+                  dzdxi(2)*dxix(2,2) + dzdxi(3)*dxix(3,2)
+             ZG(nh,7) = dzdxi(1)*dxix(1,3) + &
+                  dzdxi(2)*dxix(2,3) + dzdxi(3)*dxix(3,3)
           endif !nit
           
        endif !jp
     enddo
 
-  end subroutine ZEZG
+  end subroutine zezg
 
 !!!##############################################################################################
 
   subroutine ZGMG(nb,GZ,GZL,GZU,zg)
+
+    implicit none
 
     !     Parameter List
     integer :: nb
     real(dp) :: GZ,GZL(3,3),GZU(3,3),zg(:,:)
     !     Local Variables
     integer :: mi,nhx,ni,nitb,NU1(0:3)
-    real(dp) :: SUM
+    real(dp) :: sum
     
     DATA NU1/1,2,4,7/
     
@@ -1576,16 +1568,16 @@ contains
     nitb = nit(nb)
     do mi = 1,nitb
        do ni = 1,nitb
-          SUM = ZG(1,NU1(mi))*ZG(1,NU1(ni))
+          sum = ZG(1,NU1(mi))*ZG(1,NU1(ni))
           do nhx = 2,3
-             SUM = SUM+ZG(nhx,NU1(mi))*ZG(nhx,NU1(ni))
+             sum = sum+ZG(nhx,NU1(mi))*ZG(nhx,NU1(ni))
           enddo
-          GZL(mi,ni) = SUM
+          GZL(mi,ni) = sum
        enddo
     enddo
     
     !     Calculate contravariant metric tensor GZU(i,j)
-    call INVERT(nitb,GZL,GZU,GZ)
+    call invert(nitb,GZL,GZU,GZ)
     if(abs(GZ).LT.zero_tol) then
        WRITE(*,'('' >>Warning: zero GZ in ZGMG. GZ='',D12.5,' &
             //''' zero_tol='',D12.5)') GZ,zero_tol
@@ -1595,18 +1587,19 @@ contains
 
 !!!##############################################################################################
 
-  subroutine DXIDZM(nb,ng,DXIZN,DZNXI,COORDS,xg,ze,zg)
+  subroutine dxidzm(nb,ng,dxizn,dznxi,xg,ze,zg)
 
-    !###    DXIDZM evaluates derivatives (DXIZN) of Xi- wrt
+    implicit none
+
+    !###    dxidzm evaluates derivatives (dxizn) of Xi- wrt
     !###    deformed Nu(fibre)-coords 
 
     !     Parameter List
     integer :: nb,ng
-    real(dp) :: DXIZN(3,3),DZNXI(3,3),xg(:,:),ze(:,:),zg(:,:)
-    character :: COORDS*(*)
+    real(dp) :: dxizn(3,3),dznxi(3,3),xg(:,:),ze(:,:),zg(:,:)
     !     Local Variables
     integer :: mi,mhx,ni,ni2,nhx,nitb,NU1(0:3)
-    real(dp) :: DETERM,DXIX(3,3),DZDNU(3,3),dZrc_dZref,GZ,GZL(3,3),GZU(3,3),SUM
+    real(dp) :: determ,dxix(3,3),DZDNU(3,3),dZrc_dZref,GZ,GZL(3,3),GZU(3,3),sum
 
     DATA NU1/1,2,4,7/
     
@@ -1616,41 +1609,41 @@ contains
     dznxi = 0.0_dp
     forall(ni = 1:3) dxizn(ni,ni) = 1.0_dp
     forall(ni = 1:3) dznxi(ni,ni) = 1.0_dp
-    dxizn = 1.0_dp
-    dznxi = 1.0_dp
-    
-    if(COORDS(1:5).EQ.'Fibre') call mat_vec_def(nb,ng,DZDNU(1,1),DZDNU(1,2), &
-         DZDNU(1,3),xg,ze,zg)     ! Compute deformed anatomical fibre vectors wrt rc coordinates
-    call zezg(0,nb,ng,DXIX,ze,zg) ! Interpolate dependent var.s ZG and derivs wrt Xi (JP=0)
+
+    ! Compute deformed anatomical fibre vectors wrt rc coordinates
+    call mat_vec_def(nb,ng,DZDNU(1,1),DZDNU(1,2),DZDNU(1,3),xg,ze,zg)
+    call zezg(0,nb,ng,dxix,ze,zg) ! Interpolate dependent var.s ZG and derivs wrt Xi (JP=0)
     call ZGMG(nb,GZ,GZL,GZU,zg)   ! Calculate deformed metric tensors wrt Xi (GZL,GZU)
 
 
     do ni = 1,nitb     !Calc derivs of Xi wrt deformed Nu/Wall coords
        do mi = 1,nitb
-          SUM = 0.0_dp
+          sum = 0.0_dp
           do ni2 = 1,nitb
              do nhx = 1,3
                 do mhx = 1,3
                    dZrc_dZref = 0.0_dp
                    if(mhx.eq.nhx) dZrc_dZref = 1.0_dp
-                   SUM = SUM+GZU(ni,ni2)*dZrc_dZref*ZG(nhx,NU1(ni2))* &
+                   sum = sum+GZU(ni,ni2)*dZrc_dZref*ZG(nhx,NU1(ni2))* &
                         DZDNU(mhx,mi)
                 enddo !mhx
              enddo !nhx
           enddo !ni2
-          DXIZN(ni,mi) = SUM
+          dxizn(ni,mi) = sum
        enddo !mi
     enddo !ni
     
-    call INVERT(nitb,DXIZN,DZNXI,DETERM)
+    call invert(nitb,dxizn,dznxi,determ)
     
-  end subroutine DXIDZM
+  end subroutine dxidzm
 
 !!!##############################################################################################
 
-  subroutine INVERT(n,A,B,AA)
+  subroutine invert(n,A,B,AA)
 
-    !###    INVERT returns the inverse of matrix A as B and det(A) as AA.
+    implicit none
+
+    !###    invert returns the inverse of matrix A as B and det(A) as AA.
     !###    Matrix A may be no larger than 3*3 (N=3). Note that in
     !###    both cases A and B are dimensioned to A(3,3) and B(3,3).
 
@@ -1670,7 +1663,7 @@ contains
           B(2,1) = -A(2,1)/AA
           B(2,2) =  A(1,1)/AA
        else
-          WRITE(*,'('' >>Warning: Zero determinant in 2*2 INVERT'')')
+          WRITE(*,'('' >>Warning: Zero determinant in 2*2 invert'')')
        endif
        
     else if(N.EQ.3) then !3*3 matrix
@@ -1687,27 +1680,29 @@ contains
           B(3,2) = (A(3,1)*A(1,2)-A(1,1)*A(3,2))/AA
           B(3,3) = (A(1,1)*A(2,2)-A(2,1)*A(1,2))/AA
        else
-          WRITE(*,'('' >>Warning: Zero determinant in 3*3 INVERT'')')
+          WRITE(*,'('' >>Warning: Zero determinant in 3*3 invert'')')
        endif
     else
-       WRITE(*,'('' >>Warning: Matrix larger than 3x3 - cannot INVERT!'')')
+       WRITE(*,'('' >>Warning: Matrix larger than 3x3 - cannot invert!'')')
     endif
 
-  end subroutine INVERT
+  end subroutine invert
   
 !!!##############################################################################################
 
-  subroutine MAT_VEC(A_VECTOR,B_VECTOR,C_VECTOR,DXRCXI)
+  subroutine MAT_VEC(A_VECTOR,B_VECTOR,C_VECTOR,dxrcxi)
+
+    implicit none
 
     !###    MAT_VEC calculates direction cosines of undeformed material vectors.
 
     !     Parameter List
-    real(dp) :: A_VECTOR(3),B_VECTOR(3),C_VECTOR(3),DXRCXI(3,3)
+    real(dp) :: A_VECTOR(3),B_VECTOR(3),C_VECTOR(3),dxrcxi(3,3)
     !     Local Variables
     real(dp) :: FIBRE_ORIENT(3,3)
 
     ! Compute components of undeformed orthonormal fibre reference vectors at Gauss pt wrt rc coord system
-    call FIBRE_REF_VECS(FIBRE_ORIENT(1,1),FIBRE_ORIENT(1,2),FIBRE_ORIENT(1,3),DXRCXI)
+    call FIBRE_REF_VECS(FIBRE_ORIENT(1,1),FIBRE_ORIENT(1,2),FIBRE_ORIENT(1,3),dxrcxi)
     A_VECTOR(1:3) = FIBRE_ORIENT(1:3,1)
     B_VECTOR(1:3) = FIBRE_ORIENT(1:3,2)
     C_VECTOR(1:3) = FIBRE_ORIENT(1:3,3)
@@ -1718,10 +1713,12 @@ contains
 
   subroutine MAT_VEC_DEF(nb,ng,AD_VECTOR,BD_VECTOR,CD_VECTOR,xg,ze,zg)
 
+    implicit none
+
     !##    MAT_VEC_DEF calculates direction cosines of deformed
     !##    normalised orthogonal material vectors at Gauss point ng or at
-    !##    XI if ng=0.
-    !##    If ng=0 this routine assumes that XE/ZE contain element vertex
+    !##    xi if ng=0.
+    !##    If ng=0 this routine assumes that xe/ZE contain element vertex
     !##    coordinates and microstructural orientations for the
     !##    undeformed/deformed state resp.
     !##    If ng>0 this routine assumes XG contains Gauss pt coordinates,
@@ -1732,37 +1729,37 @@ contains
     real(dp) :: AD_VECTOR(3),BD_VECTOR(3),CD_VECTOR(3),xg(:,:),ze(:,:),zg(:,:)
     !     Local Variables
     integer :: mj,nb,ni,nitb,nj
-    real(dp) :: DXDNU(3,3),DZDNU(3,3),DZDX(3,3),SUM
-    real(dp) :: DXRCXI(3,3)
+    real(dp) :: dxdnu(3,3),DZDNU(3,3),dzdx(3,3),sum
+    real(dp) :: dxrcxi(3,3)
 
     nitb = nit(nb)
 
 !!! Compute undeformed anatomical fibre vectors wrt rc coords at ng. 
-!!! DXRCX(njj,ni) = dXRC(njj)/dXI(ni) from XG,
+!!! DXRCX(njj,ni) = dXRC(njj)/dxi(ni) from XG,
     dxrcxi(1:3,1) = xg(1:3,2)
     dxrcxi(1:3,2) = xg(1:3,4)
     dxrcxi(1:3,3) = xg(1:3,7)
 
-    call MAT_VEC(DXDNU(1,1),DXDNU(1,2),DXDNU(1,3),DXRCXI)   ! Calculate direction cosines
+    call MAT_VEC(dxdnu(1,1),dxdnu(1,2),dxdnu(1,3),dxrcxi)   ! Calculate direction cosines
 
 !!! Initialise deformed material vectors with undef material vec dirns
-    AD_VECTOR(1:3) = DXDNU(1:3,1)
-    BD_VECTOR(1:3) = DXDNU(1:3,2)
-    CD_VECTOR(1:3) = DXDNU(1:3,3)
+    AD_VECTOR(1:3) = dxdnu(1:3,1)
+    BD_VECTOR(1:3) = dxdnu(1:3,2)
+    CD_VECTOR(1:3) = dxdnu(1:3,3)
     
 !!! Compute the deformation gradient tensor wrt rc coords, i.e. want derivatives of deformed rc coordinates wrt
 !!! undeformed rc coordinates.
-    call DEFMGRADRC(nb,ng,DZDX,xg,ze,zg)
+    call defmgradrc(nb,ng,dzdx,xg,ze,zg)
     
 !!! Compute deformed material vectors wrt rc coordinates using the deformation gradient tensor and the undeformed material
 !!! vectors wrt rc coordinates
     do nj = 1,3
        do ni = 1,nitb ! we don't actually need the third component
-          SUM = 0.0_dp
+          sum = 0.0_dp
           do mj = 1,3
-             SUM = SUM+DZDX(nj,mj)*DXDNU(mj,ni)
+             sum = sum+dzdx(nj,mj)*dxdnu(mj,ni)
           enddo !nj1
-          DZDNU(nj,ni) = SUM
+          DZDNU(nj,ni) = sum
        enddo !ni
        AD_VECTOR(nj) = DZDNU(nj,1)
     enddo !nj
@@ -1772,12 +1769,12 @@ contains
     call NORMALISE(3,AD_VECTOR)
     
 !!! Make the second vector orthogonal to the first (still within the sheet)
-    SUM = 0.0_dp
+    sum = 0.0_dp
     do nj = 1,3
-       SUM = SUM+AD_VECTOR(nj)*DZDNU(nj,2)
+       sum = sum+AD_VECTOR(nj)*DZDNU(nj,2)
     enddo 
     do nj = 1,3
-       BD_VECTOR(nj) = DZDNU(nj,2)-SUM*AD_VECTOR(nj)
+       BD_VECTOR(nj) = DZDNU(nj,2)-sum*AD_VECTOR(nj)
     enddo !nj
     
     call NORMALISE(3,BD_VECTOR)
@@ -1790,6 +1787,8 @@ contains
 !!!##############################################################################################
 
   subroutine CROSS(A,B,C)
+
+    implicit none
 
     !###    CROSS returns the vector cross product of A*B in C.
 
@@ -1804,9 +1803,11 @@ contains
   
 !!!##############################################################################################
 
-  subroutine DEFMGRADRC(nb,ng,DZDX,xg,ze,zg)
+  subroutine defmgradrc(nb,ng,dzdx,xg,ze,zg)
 
-    !###    DEFMGRADRC calculates components of the deformation
+    implicit none
+
+    !###    defmgradrc calculates components of the deformation
     !##    gradient tensor wrt rectangular cartesian coords.
     !##    This routines assumes that XG contains the Gauss pt position,
     !##    interpolated material axis orientations, and derivatives
@@ -1815,47 +1816,49 @@ contains
       
 !     Parameter List
     integer ::  nb,ng
-    real(dp) :: DZDX(3,3),xg(:,:),ze(:,:),zg(:,:)
+    real(dp) :: dzdx(3,3),xg(:,:),ze(:,:),zg(:,:)
     !     Local Variables
     integer :: mhx,mj,nhx,nitb,nj,NU1(0:3)
-    real(dp) :: DETERM,DXIXJ(3,3),DXJXI(3,3),dXref_dXrc,dZrc_dZref,SUM
+    real(dp) :: determ,dxixj(3,3),dxjxi(3,3),dXref_dXrc,dZrc_dZref,sum
 
     DATA NU1/1,2,4,7/
 
     nitb = 3
 
-!!! Calculate derivatives of Xi wrt Xj (reference) coords, DXIXJ
+!!! Calculate derivatives of Xi wrt Xj (reference) coords, dxixj
     dxjxi(1:3,1) = xg(1:3,2)
     dxjxi(1:3,2) = xg(1:3,4)
     dxjxi(1:3,3) = xg(1:3,7)
-    call INVERT(nitb,DXJXI,DXIXJ,DETERM)
+    call invert(nitb,dxjxi,dxixj,determ)
     
 !!! Interpolate dependent var.s ZG and derivs wrt Xj (JP=1)
-    call ZEZG(1,nb,ng,DXIXJ,ze,zg)
+    call zezg(1,nb,ng,dxixj,ze,zg)
     do nhx = 1,3
        do nj = 1,3
-          SUM = 0.0_dp
+          sum = 0.0_dp
           do mhx = 1,3
              dZrc_dZref = 0.0_dp
              if(nhx.eq.mhx) dZrc_dZref = 1.0_dp
              do mj = 1,3
                 dXref_dXrc = 0.0_dp
                 if(mj.eq.nj) dXref_dXrc = 1.0_dp
-                SUM = SUM+dZrc_dZref*ZG(mhx,NU1(mj))*dXref_dXrc
+                sum = sum+dZrc_dZref*ZG(mhx,NU1(mj))*dXref_dXrc
              enddo !mj
           enddo !mhx
-          DZDX(nhx,nj) = SUM
+          dzdx(nhx,nj) = sum
        enddo !nj
     enddo !nhx
 
-  end subroutine DEFMGRADRC
+  end subroutine defmgradrc
 
 !!!##############################################################################################
 
-  subroutine FIBRE_REF_VECS(F_VECTOR,G_VECTOR,H_VECTOR,dXRC_dXI)
+  subroutine FIBRE_REF_VECS(F_VECTOR,G_VECTOR,H_VECTOR,dxrc_dxi)
+
+    implicit none
 
     !     Parameter List
-    real(dp) :: F_VECTOR(3),G_VECTOR(3),H_VECTOR(3),dXRC_dXI(3,3)
+    real(dp) :: F_VECTOR(3),G_VECTOR(3),H_VECTOR(3),dxrc_dxi(3,3)
     !     Local Variables
     integer :: nj
     logical :: ZERO_F_VECTOR
@@ -1866,7 +1869,7 @@ contains
     H_VECTOR = 0.0_dp
     
     !     F_VECTOR is the normalised undeformed Xi1 base vector
-    F_VECTOR(1:3) = dXRC_dXI(1:3,1)
+    F_VECTOR(1:3) = dxrc_dxi(1:3,1)
     call NORMALISE(3,F_VECTOR)
     
     ZERO_F_VECTOR = .TRUE.
@@ -1875,17 +1878,17 @@ contains
     enddo !nj
     if(ZERO_F_VECTOR) then
        !         ...so set G_VECTOR to be the normalised undef Xi2 base vector
-       G_VECTOR(1:3) = dXRC_dXI(1:3,2)
+       G_VECTOR(1:3) = dxrc_dxi(1:3,2)
        call NORMALISE(3,G_VECTOR)
        !         ...then F_VECTOR is the undeformed Xi2-Xi3 plane normal
-       call CROSS(dXRC_dXI(1,2),dXRC_dXI(1,3),F_VECTOR)
+       call CROSS(dxrc_dxi(1,2),dxrc_dxi(1,3),F_VECTOR)
        call NORMALISE(3,F_VECTOR)
        !         ...and H_VECTOR lies in the undeformed Xi2-Xi3 plane and is
        !         normal to G_VECTOR
        call CROSS(F_VECTOR,G_VECTOR,H_VECTOR)
     else !F_VECTOR is not all zero
        !         H_VECTOR is the undeformed Xi1-Xi2 plane normal
-       call CROSS(dXRC_dXI(1,1),dXRC_dXI(1,2),H_VECTOR)
+       call CROSS(dxrc_dxi(1,1),dxrc_dxi(1,2),H_VECTOR)
        call NORMALISE(3,H_VECTOR)
        !         G_VECTOR lies in the undeformed Xi1-Xi2 plane and is
        !         normal to F_VECTOR
@@ -1897,6 +1900,8 @@ contains
 !!!##############################################################################################
 
   subroutine NORMALISE(NUMCMPTS,VECTOR)
+
+    implicit none
     
     !##    NORMALISE divides the components of VECTOR by it's length
     
@@ -1925,6 +1930,8 @@ contains
 !!!##############################################################################################
 
   subroutine ZGTG53(az,azl,azu,ri3,CG,TG,xg)
+
+    implicit none
     
     !     Parameter List
     real(dp) :: AXU(3,3),AZ,AZL(3,3),AZU(3,3),CG(NMM),RI1,RI2,RI3,TG(3,3),xg(:,:)
@@ -1967,6 +1974,8 @@ contains
 !!!##############################################################################################
 
   subroutine derivatives_sedf(CG,DW,P1,P2,P3)
+
+    implicit none
     
     !##    calculates derivatives of strain energy function wrt
     !##     principal strain invariants.
@@ -1994,6 +2003,8 @@ contains
 !!!##############################################################################################
 
   subroutine solve_elasticity(niterate,errmax,factor)
+
+    implicit none
     
 !***  YP(ny,1) and ZP has current equilibrium solution
 !***  YP(ny,2) has prescribed dep var/force increms set by FIX_MECH(ny,1)
@@ -2147,6 +2158,8 @@ contains
 !!!##############################################################################################
 
  subroutine calc_conv_ratio(iter1,errmax,ratio)
+
+    implicit none
    
    !     Parameter List
    integer :: ITER1
@@ -2208,6 +2221,8 @@ contains
 !!!##############################################################################################
 
  subroutine ZPRP(nb,xe,xg,ze,zg)
+
+    implicit none
    
    !##    ZPRP calculates global residual vector YP(ny,4) at current
    !##    solution.  RE(ns,nh) has been corrected with scaling factor
@@ -2225,7 +2240,7 @@ contains
 
     do ne = 1,tissue_num_elems
       call MELge(lge,nb,nc,ne,nhst)
-      call xpxe(nb,ne,xe)  !     put XP into XE
+      call xpxe(nb,ne,xe)  !     put XP into xe
       call zpze(nb,ne,ze)  !     put ZP into ZE
       call cpcg(ne)
       call ZERE50(nb,ne,re,xe,xg,ze,zg)  !     get element matrix from ZE
@@ -2255,6 +2270,8 @@ contains
 
  subroutine melge(lge,nb,nc,ne,nhst)
 
+    implicit none
+
    !##    MELge calculates the row numbers (Lge(*,1)) and column numbers
    !##    (Lge(*,2)) in the global matrix nc for element variables nhs
    !##    in region nr. It also returns the total number of element
@@ -2283,12 +2300,14 @@ contains
 
  subroutine zere50(nb,ne,re,xe,xg,ze,zg)
 
+    implicit none
+
    !     Parameter List
    integer :: nb,ne
    real(dp) :: re(:,:),xe(:,:),xg(:,:),ze(:,:),zg(:,:)
    !     Local Variables
    integer :: JP,ng,nh,nitb,ns,NU1(0:3)
-   real(dp) :: Age,AZ,AZL(3,3),AZU(3,3),DXIX(3,3),DZDX(3,3),GXL(3,3), &
+   real(dp) :: Age,AZ,AZL(3,3),AZU(3,3),dxix(3,3),dzdx(3,3),GXL(3,3), &
         GXU(3,3),PPGG(4),rgx,RI3,RWG,TG(3,3),Volume,ZG_temp(NHM,NUM)
    real(dp) :: yg_ne(2,ngm)
    CHARACTER STRESSTYPE*17
@@ -2307,18 +2326,18 @@ contains
       !   stresses referred to Nu in constitutive law.
       JP = 1
       !   Calculate undeformed metric tensors wrt Xi (GXL,GXU) and
-      !   derivs (DXIX) of Xi wrt Xj (JP=0) or Nu (JP=1) coords.
-      call XGMG(JP,nitb,nb,DXIX,GXL,GXU,RGX,xg)
+      !   derivs (dxix) of Xi wrt Xj (JP=0) or Nu (JP=1) coords.
+      call XGMG(JP,nitb,nb,dxix,GXL,GXU,RGX,xg)
       !   Calculate the Jacobian for integration wrt undef coords:
       RWG = RGX*wg(ng)
                
       !   Interpolate dependent var.s ZG and derivs wrt Nu (JP=1)
-      call ZEZG(1,nb,ng,DXIX,ze,zg)
-      call DEFMGRADRC(nb,ng,DZDX,xg,ze,zg_temp)
-      Volume = DET(DZDX)
+      call zezg(1,nb,ng,dxix,ze,zg)
+      call defmgradrc(nb,ng,dzdx,xg,ze,zg_temp)
+      Volume = DET(dzdx)
       if(Volume .LT. 0.0_dp) then
          WRITE(*,'('' >>Warning: Volume at ng='',I5,'' ne='',I5,'' less than zero'')') ng,ne
-         WRITE(*,'('' DET(DZDX)='',D12.4)') Volume
+         WRITE(*,'('' DET(dzdx)='',D12.4)') Volume
          !read(*,*)
       endif
          
@@ -2334,12 +2353,12 @@ contains
          do ns = 1,NST(nb) !element variables
                
             PPGG(1) = PG(ns,1,ng)
-            PPGG(2) = PG(ns,NU1(1),ng)*DXIX(1,1) + PG(ns,NU1(2),ng)*DXIX(2,1) + &
-                 PG(ns,NU1(3),ng)*DXIX(3,1)
-            PPGG(3) = PG(ns,NU1(1),ng)*DXIX(1,2) + PG(ns,NU1(2),ng)*DXIX(2,2) + &
-                 PG(ns,NU1(3),ng)*DXIX(3,2)
-            PPGG(4) = PG(ns,NU1(1),ng)*DXIX(1,3) + PG(ns,NU1(2),ng)*DXIX(2,3) + &
-                 PG(ns,NU1(3),ng)*DXIX(3,3)
+            PPGG(2) = PG(ns,NU1(1),ng)*dxix(1,1) + PG(ns,NU1(2),ng)*dxix(2,1) + &
+                 PG(ns,NU1(3),ng)*dxix(3,1)
+            PPGG(3) = PG(ns,NU1(1),ng)*dxix(1,2) + PG(ns,NU1(2),ng)*dxix(2,2) + &
+                 PG(ns,NU1(3),ng)*dxix(3,2)
+            PPGG(4) = PG(ns,NU1(1),ng)*dxix(1,3) + PG(ns,NU1(2),ng)*dxix(2,3) + &
+                 PG(ns,NU1(3),ng)*dxix(3,3)
                
             Age = (TG(1,1)*ZG(nh,2)+TG(1,2)*ZG(nh,4)+TG(1,3)*ZG(nh,7))*PPGG(2) &
                  +(TG(2,1)*ZG(nh,2)+TG(2,2)*ZG(nh,4)+TG(2,3)*ZG(nh,7))*PPGG(3) &
@@ -2365,6 +2384,8 @@ contains
 !!!##############################################################################################
 
  subroutine assemble_gk(nb,xe,xg,ze,zg)
+
+    implicit none
 
    !##    (CMISS ASSEMBLE: generates element stiffness matrix ES for nonlinear
    !##    problems by ZEES, and assembles into the global stiffness
@@ -2404,6 +2425,8 @@ contains
 !!!##############################################################################################
 
  subroutine zees(lge,nb,ne,es,xe,xg,ze,zg)
+
+    implicit none
    
    !##    ZEES calculates element tangent stiffness matrix ES from
    !##    current dependent variable array ZE.
@@ -2455,6 +2478,8 @@ contains
 !!!##############################################################################################
  
  subroutine sparse(I,J,N,nz,NZMAX)
+
+    implicit none
    
    !     Parameter List
    integer :: I,J,N,nz,NZMAX
@@ -2473,6 +2498,8 @@ contains
 !!!##############################################################################################
  
  subroutine solve5(update_matrix)
+
+    implicit none
    
    !##    Solves the resulting system of linear equations for the
    !##    increments of the nonlinear solver in NONLIN.
@@ -2532,6 +2559,8 @@ contains
 !!!##############################################################################################
  
  subroutine solve_system(LDA,N,A,B,X,FIRST_A,UPDATE_A)
+
+    implicit none
    
    !     Parameter List
    integer,intent(in) :: LDA,N
@@ -2551,7 +2580,7 @@ contains
    endif
    
    !   Factorise the system 
-   call ITER_FACTOR_x(A,LDA,N,rsolv1,ANORM)
+   call iter_factor_x(A,LDA,N,rsolv1,ANORM)
    FIRST_A = .FALSE.
    
    !   Solve the problem
@@ -2565,7 +2594,9 @@ contains
  
 !!!##############################################################################################
  
- subroutine ITER_FACTOR_x(A,LDA,N,D,ANORM)
+ subroutine iter_factor_x(A,LDA,N,D,ANORM)
+
+    implicit none
    
    !##    ITER_FACTOR factorises a system that is to be used in
    !##    one of the iterative solvers
@@ -2575,7 +2606,7 @@ contains
    real(dp) :: A(*),D(*),ANORM
    !     Local variables
    integer :: I
-   real*8 sum
+   real(dp) :: sum
    
    do I = 1,N
       if(abs(A(I+N*(I-1))).le.zero_tol) then
@@ -2586,18 +2617,20 @@ contains
    enddo
    
    !   Get the norm of A
-   SUM = 0.0_dp
+   sum = 0.0_dp
    do I = 1,N
-      SUM = SUM+norm3(N,A(I),LDA)**2
+      sum = sum+norm3(N,A(I),LDA)**2
    enddo
-   ANORM = sqrt(SUM)
+   ANORM = sqrt(sum)
    
- end subroutine ITER_FACTOR_x
+ end subroutine iter_factor_x
  
  
 !!!##############################################################################################
 
- subroutine GMRES_x(A,LDA,N,X,B,D,ANORM,RESID,ITER,NRES)
+ subroutine gmres_x(A,LDA,N,X,B,D,ANORM,RESID,ITER,NRES)
+
+    implicit none
    
    !##    GRMRES solves a system of linear equations using the preconditioned
    !##    Generalised Minimum Residual scheme.
@@ -2616,7 +2649,7 @@ contains
    allocate(Y(NRES+1))
    allocate(H(NRES*(NRES+1)))
 
-   call GMRES_SUB_x(A,LDA,N,X,B,D,R,V,S,T,U,Y,H,anorm,resid,iter,nres) 
+   call gmres_sub_x(A,LDA,N,X,B,D,R,V,S,T,U,Y,H,anorm,resid,iter,nres) 
 
    deallocate(H)
    deallocate(Y)
@@ -2626,11 +2659,13 @@ contains
    deallocate(U)
    deallocate(R)
 
- end subroutine GMRES_x
+ end subroutine gmres_x
 
 !!!##############################################################################################
 
- subroutine GMRES_SUB_x(A,LDA,N,X,B,D,R,V,S,T,U,Y,H,ANORM,RESID,ITER,NRES)
+ subroutine gmres_sub_x(A,LDA,N,X,B,D,R,V,S,T,U,Y,H,ANORM,RESID,ITER,NRES)
+
+    implicit none
    
    !##  Solves a system of linear equations using the preconditioned
    !##  Generalised Minimum Residual scheme.
@@ -2641,12 +2676,12 @@ contains
    real(dp) :: S(NRES+1),T(NRES+1),U(NRES+1),Y(NRES+1),H(NRES+1,NRES)
    real(dp) :: ANORM,RESID
    !     Local Variables
-   integer :: I,J,L,MAXIT
+   integer :: I,J,L,maxit
    real(dp) :: TOL,ABSV1,ALPHA,BETA,SIGMA,TMP,BNORM,SCALED_TOL,EPS
    real(dp) :: v1_temp(N),v2_temp(N)
    
    TOL = RESID
-   MAXIT = ITER
+   maxit = ITER
    BNORM = norm2(b)
    eps = zero_tol **2
    SCALED_TOL = TOL*BNORM
@@ -2664,7 +2699,7 @@ contains
    
    !   Solve the system
    ITER = 1
-   do WHILE(ITER.LE.MAXIT)
+   do WHILE(ITER.LE.maxit)
       
       ! Calculate the residual r = b - A.x
       r(1:n) = b(1:n)
@@ -2723,7 +2758,7 @@ contains
          S(I+1) = -(U(I)*S(I))
          S(I) = S(I)*T(I)
          RESID = SIGMA * abs(S(I+1))
-         if(RESID.LT.SCALED_TOL.OR.ITER.ge.MAXIT) GOTO 100
+         if(RESID.LT.SCALED_TOL.OR.ITER.ge.maxit) GOTO 100
          ITER = ITER+1
       enddo
       I = I-1
@@ -2744,20 +2779,22 @@ contains
          x(1:n) = x(1:n) + y(j) * v(1:n,j)
       enddo
       if(ITER.EQ.1) SCALED_TOL = TOL*(ANORM* norm2(x) + bnorm) !DNRM2_x(N,X,1) + BNORM)
-      if(RESID.LT.SCALED_TOL.OR.ITER.ge.MAXIT) GOTO 200
+      if(RESID.LT.SCALED_TOL.OR.ITER.ge.maxit) GOTO 200
       
    enddo
-   ITER = MAXIT
+   ITER = maxit
    
 200 CONTINUE
    
    RETURN
- end subroutine GMRES_SUB_x
+ end subroutine gmres_sub_x
 
 !!!##############################################################################################
 
  subroutine dgemv_x (M, N, ALPHA, A, lda,X, BETA, Y)
    !  matrix-vector operation y := alpha*A*x + beta*y.
+
+    implicit none
 
    real(dp) :: ALPHA, BETA
    integer :: lda,M, N
@@ -2780,6 +2817,8 @@ contains
 !!!##############################################################################################
 
  subroutine project_lung_to_cavity(nelist,nplist,option)
+
+   implicit none
    
    !     Parameter List
    integer :: num_ne,nelist(:),num_np,nplist(:)
@@ -2841,9 +2880,11 @@ contains
       
 !!!##############################################################################################
   
-  subroutine project_closest(nb,SQ,XE,XI,point,INELEM)
+  subroutine project_closest(nb,SQ,xe,xi,point,INELEM)
 
-    !##    Finds the XI-coordinates at the closest approach of a 2D
+   implicit none
+
+    !##    Finds the xi-coordinates at the closest approach of a 2D
     !##    element to a data point with coordinates XD using a modified
     !##    Newton algorithm.
     !##    If INELEM is true then the closest point within the element is
@@ -2858,15 +2899,15 @@ contains
 
     !     Parameter List
     integer :: nb
-    real(dp) :: SQ,XE(:,:),XI(:),point(:)
+    real(dp) :: SQ,xe(:,:),xi(:),point(:)
     logical :: INELEM
     !     Local Variables
     integer :: BOUND(2),it,it2,ni,nifix,nj
     integer,parameter :: itmax = 10
-    real(dp) :: DELTA,DET,D2SQV2,D2SQVW2,D2SQXI(2,2),D2ZXI(3,2,2),DSQXI(2), &
-         DSQXI1,DSQXI2,DSQV,DSQVW,DZ(3),DZXI(3,2),EVMIN,EVMAX,H(2), &
+    real(dp) :: DELTA,DET,D2SQV2,D2SQVW2,d2sqxi(2,2),d2zxi(3,2,2),dsqxi(2), &
+         dsqxi1,dsqxi2,DSQV,DSQVW,DZ(3),dzxi(3,2),EVMIN,EVMAX,H(2), &
          MU,SQLIN,SQDIFF,SQdpRED,TEMP,TEMP1,TEMP2,TOL, &
-         TOL2,V(2),V1,V2,W,xe_nj(nsm),XILIN(2),Z(3)
+         TOL2,V(2),V1,V2,W,xe_nj(nsm),xilin(2),Z(3)
     logical :: converged,ENFORCE(2),FREE,NEWTON
 
     DELTA = 0.25_dp !VMAX/4.0_dp
@@ -2875,7 +2916,7 @@ contains
     SQ = 0.0_dp
     do nj = 1,3
        xe_nj(:) = xe(:,nj)
-       Z(nj) =  pxi(nb,1,XI,xe_nj)
+       Z(nj) =  pxi(nb,1,xi,xe_nj)
        DZ(nj) = Z(nj)- point(nj)
        SQ = SQ+DZ(nj)**2
     enddo
@@ -2886,18 +2927,18 @@ contains
        dsqxi = 0.0_dp
        do nj = 1,3
           xe_nj(:) = xe(:,nj)
-          DZXI(nj,1)= pxi(nb,2,XI,xe_nj)
-          DZXI(nj,2) =  pxi(nb,4,XI,xe_nj)
-          DSQXI(1) = DSQXI(1)+DZXI(nj,1)*DZ(nj)
-          DSQXI(2) = DSQXI(2)+DZXI(nj,2)*DZ(nj)
+          dzxi(nj,1)= pxi(nb,2,XI,xe_nj)
+          dzxi(nj,2) =  pxi(nb,4,XI,xe_nj)
+          dsqxi(1) = dsqxi(1)+dzxi(nj,1)*DZ(nj)
+          dsqxi(2) = dsqxi(2)+dzxi(nj,2)*DZ(nj)
        enddo
        do ni = 1,2
           if(abs(XI(ni)).le.zero_tol) then
              BOUND(ni) = 1
-             ENFORCE(ni) =  DSQXI(ni).ge.0.0_dp
+             ENFORCE(ni) =  dsqxi(ni).ge.0.0_dp
           else if(abs(XI(ni)-1.0_dp).le.zero_tol) then
              BOUND(ni) = -1
-             ENFORCE(ni) =  DSQXI(ni).LE.0.0_dp
+             ENFORCE(ni) =  dsqxi(ni).LE.0.0_dp
           else
              BOUND(ni) = 0
              ENFORCE(ni) = .FALSE.
@@ -2908,12 +2949,12 @@ contains
        d2sqxi = 0.0_dp
        do nj = 1,3
           xe_nj(:) = xe(:,nj)
-          D2ZXI(nj,1,1) =  pxi(nb,3,XI,xe_nj)
-          D2ZXI(nj,1,2) =  pxi(nb,6,XI,xe_nj)
-          D2ZXI(nj,2,2) =  pxi(nb,5,XI,xe_nj)
-          D2SQXI(1,1) =  D2SQXI(1,1)+DZXI(nj,1)*DZXI(nj,1)+D2ZXI(nj,1,1)*DZ(nj)
-          D2SQXI(1,2) =  D2SQXI(1,2)+DZXI(nj,1)*DZXI(nj,2)+D2ZXI(nj,1,2)*DZ(nj)
-          D2SQXI(2,2) =  D2SQXI(2,2)+DZXI(nj,2)*DZXI(nj,2)+D2ZXI(nj,2,2)*DZ(nj)
+          d2zxi(nj,1,1) =  pxi(nb,3,XI,xe_nj)
+          d2zxi(nj,1,2) =  pxi(nb,6,XI,xe_nj)
+          d2zxi(nj,2,2) =  pxi(nb,5,XI,xe_nj)
+          d2sqxi(1,1) =  d2sqxi(1,1)+dzxi(nj,1)*dzxi(nj,1)+d2zxi(nj,1,1)*DZ(nj)
+          d2sqxi(1,2) =  d2sqxi(1,2)+dzxi(nj,1)*dzxi(nj,2)+d2zxi(nj,1,2)*DZ(nj)
+          d2sqxi(2,2) =  d2sqxi(2,2)+dzxi(nj,2)*dzxi(nj,2)+d2zxi(nj,2,2)*DZ(nj)
        enddo
        !     A Newton step is taken if the condition of the Hessian
        !     guarantees that the step will be within the trust region.
@@ -2922,35 +2963,35 @@ contains
        !     better direction than steepest descent.  I think it is close to
        !     the best direction in the trust region.
        !**    Find the smallest eigen value of the Hessian.
-       DSQXI2 = DSQXI(1)**2+DSQXI(2)**2
-       DSQXI1 = sqrt(DSQXI2)
-       TEMP1 = (D2SQXI(1,1)+D2SQXI(2,2))/2.0_dp
-       TEMP2 = sqrt(((D2SQXI(1,1)-D2SQXI(2,2))/2.0_dp)**2+D2SQXI(1,2)**2)
+       dsqxi2 = dsqxi(1)**2+dsqxi(2)**2
+       dsqxi1 = sqrt(dsqxi2)
+       TEMP1 = (d2sqxi(1,1)+d2sqxi(2,2))/2.0_dp
+       TEMP2 = sqrt(((d2sqxi(1,1)-d2sqxi(2,2))/2.0_dp)**2+d2sqxi(1,2)**2)
        EVMIN = TEMP1-TEMP2
        EVMAX = TEMP1+TEMP2
-       if(DSQXI1.LT.TOL2) GO TO 9998
+       if(dsqxi1.LT.TOL2) GO TO 9998
        do it2 = 1,ITMAX
-          if(abs(delta).gt.zero_tol)  TEMP = DSQXI1/DELTA
+          if(abs(delta).gt.zero_tol)  TEMP = dsqxi1/DELTA
           NEWTON = EVMIN.ge.TEMP
           if(NEWTON) then !Newton is safe
-             H(1) = D2SQXI(1,1)
-             H(2) = D2SQXI(2,2)
+             H(1) = d2sqxi(1,1)
+             H(2) = d2sqxi(2,2)
              DET = EVMIN*EVMAX
           else
              !**        Shift eigenvalues to restrict step
              MU = TEMP-EVMIN
-             H(1) = D2SQXI(1,1)+MU
-             H(2) = D2SQXI(2,2)+MU
+             H(1) = d2sqxi(1,1)+MU
+             H(2) = d2sqxi(2,2)+MU
              DET = TEMP*(EVMAX+MU)
           endif
-          V(1) = -(H(2)*DSQXI(1)-D2SQXI(1,2)*DSQXI(2))/DET
-          V(2) = (D2SQXI(1,2)*DSQXI(1)-H(1)*DSQXI(2))/DET
+          V(1) = -(H(2)*dsqxi(1)-d2sqxi(1,2)*dsqxi(2))/DET
+          V(2) = (d2sqxi(1,2)*dsqxi(1)-H(1)*dsqxi(2))/DET
           V2 = V(1)**2+V(2)**2
-          DSQV = DSQXI(1)*V(1)+DSQXI(2)*V(2)
+          DSQV = dsqxi(1)*V(1)+dsqxi(2)*V(2)
           !       This checks that numerical errors have not
           !       prevented the step direction being a descent direction.
           
-          if(DSQV**2.LT.DSQXI2*V2*TOL2) then !try a smaller trust region
+          if(DSQV**2.LT.dsqxi2*V2*TOL2) then !try a smaller trust region
              DELTA = DELTA/10.0_dp
           else !step is good, check feasible and limit step size
              FREE = .TRUE.
@@ -2963,7 +3004,7 @@ contains
              W = 1.0_dp
              if(FREE) then
                 V1 = sqrt(V2) !currently < DELTA
-                D2SQV2 = V(1)*(V(1)*D2SQXI(1,1)+2.0_dp*V(2)*D2SQXI(1,2))+V(2)**2*D2SQXI(2,2)
+                D2SQV2 = V(1)*(V(1)*d2sqxi(1,1)+2.0_dp*V(2)*d2sqxi(1,2))+V(2)**2*d2sqxi(2,2)
                 if(.not.NEWTON) then ! Try to step to estimate of minimum along line
                    if(V1.GT.0.0_dp) then
                       W = DELTA/V1
@@ -2982,47 +3023,47 @@ contains
                 if(.not.INELEM) then
                    !**            If stepping predominantly out of element then exit
                    nifix = 3-ni
-                   if(abs(V(nifix)).GT.abs(DSQXI(ni)/H(ni))) then
-                      XI(nifix) = XI(nifix)+V(nifix)
+                   if(abs(V(nifix)).GT.abs(dsqxi(ni)/H(ni))) then
+                      xi(nifix) = xi(nifix)+V(nifix)
                       GO TO 9998
                    endif
                 endif
                 V(nifix) = 0.0_dp
-                if(D2SQXI(ni,ni).GT.0.0_dp) then !minimum exists
-                   V(ni) = -DSQXI(ni)/D2SQXI(ni,ni)
+                if(d2sqxi(ni,ni).GT.0.0_dp) then !minimum exists
+                   V(ni) = -dsqxi(ni)/d2sqxi(ni,ni)
                    V1 = abs(V(ni))
                    NEWTON = V1.LE.DELTA
                 endif
                 if(.not.NEWTON) then
-                   V(ni) = -DSIGN(DELTA,DSQXI(ni))
+                   V(ni) = -DSIGN(DELTA,dsqxi(ni))
                    V1 = DELTA
                 endif
                 V2 = V1*V1
-                DSQV = DSQXI(ni)*V(ni)
-                D2SQV2 = V2*D2SQXI(ni,ni)
+                DSQV = dsqxi(ni)*V(ni)
+                D2SQV2 = V2*d2sqxi(ni,ni)
              endif !free
              !**        First half of convergence test.
              !         Should be before boundary colllision check
              converged = V1*W.LT.TOL
-             !**        Try the step.  (Name: XILIN is historical)
-             XILIN(1:2) = XI(1:2)+V(1:2)*W
+             !**        Try the step.  (Name: xilin is historical)
+             xilin(1:2) = xi(1:2)+V(1:2)*W
              !**        Test for boundary collision
              do ni = 1,2
-                if(XILIN(ni).LT.0.0_dp) then
-                   XILIN(ni) = 0.0_dp
-                   W = XI(ni)/(-V(ni))
-                   XILIN(3-ni) = XI(3-ni)+V(3-ni)*W
-                else if(XILIN(ni).GT.1.0_dp) then
-                   XILIN(ni) = 1.0_dp
-                   W = (1.0_dp-XI(ni))/V(ni)
-                   XILIN(3-ni) = XI(3-ni)+V(3-ni)*W
+                if(xilin(ni).LT.0.0_dp) then
+                   xilin(ni) = 0.0_dp
+                   W = xi(ni)/(-V(ni))
+                   xilin(3-ni) = xi(3-ni)+V(3-ni)*W
+                else if(xilin(ni).GT.1.0_dp) then
+                   xilin(ni) = 1.0_dp
+                   W = (1.0_dp-xi(ni))/V(ni)
+                   xilin(3-ni) = xi(3-ni)+V(3-ni)*W
                 endif
              enddo !ni
              !**        Calculate new distance
              SQLIN = 0.0_dp
              do nj = 1,3
                 xe_nj(:) = xe(:,nj)
-                Z(nj) = pxi(nb,1,XILIN,xe_nj)
+                Z(nj) = pxi(nb,1,xilin,xe_nj)
                 DZ(nj) = Z(nj) - point(nj)
                 SQLIN = SQLIN+DZ(nj)**2
              enddo
@@ -3049,20 +3090,20 @@ contains
              !**        minimum along the step direction using a cubic approximation.
              TEMP = -3.0_dp*SQDPRED !<0
              DELTA =  W*V1*(D2SQVW2-sqrt(D2SQVW2**2+TEMP*DSQVW))/TEMP !>0
-          endif !DSQV**2.LT.DSQXI2*V2*TOL2
+          endif !DSQV**2.LT.dsqxi2*V2*TOL2
        enddo !it2
        
 5      SQ = SQLIN
-       XI(1) = XILIN(1)
-       XI(2) = XILIN(2)
+       xi(1) = xilin(1)
+       xi(2) = xilin(2)
        IT = IT+1
     enddo
     if(.not.converged) then
        WRITE(*,'('' >>WARNING!!! Projection iterations have not converged'')')
        WRITE(*,'(14X,''Estimate of error magnitude in xi:'',D9.2,''.'')') W*V1
     endif
-    if(.not.inelem.and.XI(1).ge.0.0_dp.and.XI(1).LE.1.0_dp.and. &
-         XI(2).ge.0.0_dp.and.XI(2).LE.1.0_dp) then
+    if(.not.inelem.and.xi(1).ge.0.0_dp.and.xi(1).LE.1.0_dp.and. &
+         xi(2).ge.0.0_dp.and.xi(2).LE.1.0_dp) then
        inelem = .TRUE.
     endif
 
@@ -3072,6 +3113,8 @@ contains
 !!!##############################################################################################
 
   subroutine exnode_deform(num_list,nplist,FILE,NODE_NAME)
+
+   implicit none
 
     !     Parameter List
     integer :: nplist(:),num_list
@@ -3110,6 +3153,8 @@ contains
 !!!##############################################################################################
 
   subroutine output_mechanics_results(outfile)
+
+   implicit none
 
     character(len = *) :: outfile
     !     Local Variables
@@ -3173,6 +3218,8 @@ contains
 
   function det(a)
 
+   implicit none
+
     ! determinant of 3*3 matrix a.
 
     !     Parameter List
@@ -3188,6 +3235,8 @@ contains
  
  function norm3( N, X, INCX )
    ! returns the euclidean norm of a vector with steps (incx) > 1
+
+   implicit none
 
    !     Parameter List
    integer :: N,INCX
@@ -3214,6 +3263,8 @@ contains
     !###    nc for a region nr for a variable ny from nrc1, eg. the
     !###    equivalent flux variable.
 
+   implicit none
+
     !     Parameter List
     integer :: nc,nrc,nrc1,ny
     !     Local Variables
@@ -3228,53 +3279,11 @@ contains
 
 !!!##############################################################################################
 
-  function local_tissue_node(node)
-    integer,intent(in) :: node
-    integer :: local_tissue_node,np
-    logical :: found
-
-    found = .false.
-    np = 1
-    
-    do while(.not.found.and.np.le.tissue_num_nodes)
-       if(tissue_nodes(np).eq.node)then
-          found = .true.
-          local_tissue_node = np
-       else
-          np = np + 1
-       endif
-    enddo
-    if(.not.found) local_tissue_node = 0
-    
-  end function local_tissue_node
-  
-!!!##############################################################################################
-
-  function local_cavity_node(node)
-    integer,intent(in) :: node
-    integer :: local_cavity_node,np
-    logical :: found
-
-    found = .false.
-    np = 1
-    
-    do while(.not.found.and.np.le.cavity_num_nodes)
-       if(cavity_nodes(np).eq.node)then
-          found = .true.
-          local_cavity_node = np
-       else
-          np = np + 1
-       endif
-    enddo
-    if(.not.found) local_cavity_node = 0
-    
-  end function local_cavity_node
-  
-!!!##############################################################################################
-
   function pl2(i,k,xi)
 
     ! Evaluate 1D quadratic Lagrange basis function at xi.
+
+   implicit none
     integer,intent(in) :: i,k
     real(dp),intent(in) :: xi
     integer :: i_k
@@ -3284,44 +3293,46 @@ contains
 
     select case(i_k)
     case(11)
-       PL2 = 1.0_dp-3.0_dp*XI+2.0_dp*XI*XI
+       pl2 = 1.0_dp-3.0_dp*xi+2.0_dp*xi*xi
     case(12)
-       PL2 = 4.0_dp*XI*(1.0_dp-XI)
+       pl2 = 4.0_dp*xi*(1.0_dp-xi)
     case(13)
-       PL2 = XI*(XI+XI-1.0_dp)
+       pl2 = xi*(xi+xi-1.0_dp)
     case(21)
-       PL2 = 4.0_dp*XI-3.0_dp
+       pl2 = 4.0_dp*xi-3.0_dp
     case(22)
-       PL2 = 4.0_dp-8.0_dp*XI
+       pl2 = 4.0_dp-8.0_dp*xi
     case(23)
-       PL2 = 4.0_dp*XI-1.0_dp
+       pl2 = 4.0_dp*xi-1.0_dp
     case(31)
-       PL2 = 4.0_dp
+       pl2 = 4.0_dp
     case(32)
-       PL2 = -8.0_dp
+       pl2 = -8.0_dp
     case(33)
-       PL2 = 4.0_dp
+       pl2 = 4.0_dp
     end select
     
   end function pl2
 
 !!!##############################################################################################
 
-  function psi1(nb,nu,nn,XI)
+  function psi1(nb,nu,nn,xi)
 
-    ! psi1 evaluates tensor product Lagrange basis functions at XI.
+    ! psi1 evaluates tensor product Lagrange basis functions at xi.
 
-    !**** IPU(nu,ni),nu=1,NUT(nb) identifies the complete set of partial
-    !**** derivatives with respect to Xi(ni).
+    !**** ipu(nu,ni),nu=1,nut(nb) identifies the complete set of partial
+    !**** derivatives with respect to xi(ni).
+
+   implicit none
 
     !     Parameter List
     integer :: nb,nn,nu
-    real(dp) :: XI(3)
+    real(dp) :: xi(3)
     !     Local Variables
-    integer :: i,IPU(11,3),k,ni
+    integer :: i,ipu(11,3),k,ni
     real(dp) :: psi1
 
-    DATA IPU/1,2,3,1,1,2,1,1,2,1,2, &
+    data ipu/1,2,3,1,1,2,1,1,2,1,2, &
              1,1,1,2,3,2,1,1,1,2,2, &
              1,1,1,1,1,1,2,3,2,2,2/ 
 
@@ -3329,7 +3340,7 @@ contains
     do ni = 1,nit(nb) ! 2 or 3
        i = inp(nn,ni,nb)
        k = ipu(nu,ni)
-       psi1 = psi1*PL2(i,k,XI(ni))
+       psi1 = psi1*pl2(i,k,xi(ni))
     enddo
 
   end function psi1
@@ -3338,10 +3349,12 @@ contains
 
  function pxi(nb,nu,xi,xe)
    
-   !##  pxi interpolates nodal array XE at XI
+   !##  pxi interpolates nodal array xe at xi
+
+   implicit none
    !     Parameter List
    integer :: nb,nu
-   real(dp) :: XE(NSM),XI(:)
+   real(dp) :: xe(nsm),xi(:)
    !     Local Variables
    integer :: nn,ns
    real(dp) :: pxi
@@ -3350,7 +3363,7 @@ contains
    ns = 0
    do nn = 1,nnt(nb)
       ns = ns+1
-      pxi = pxi+psi1(nb,nu,nn,xi)*XE(ns)
+      pxi = pxi+psi1(nb,nu,nn,xi)*xe(ns)
    enddo
    
   end function pxi
