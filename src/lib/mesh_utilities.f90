@@ -9,6 +9,7 @@ module mesh_utilities
 
   use arrays
   use diagnostics
+  use indices
   use other_consts
   use precision ! sets dp for precision
 
@@ -47,9 +48,15 @@ module mesh_utilities
        unit_norm_to_plane_two_vectors, &
        unit_norm_to_three_points, &
        unit_vector, &
+       update_resistance, &
        vector_length, &
        volume_internal_to_surface, &
        which_child
+
+  real(dp),parameter,private :: gravity = 9.81e3_dp         ! mm/s2
+!!! for air
+  real(dp),parameter,private :: gas_density =   1.146e-6_dp ! g.mm^-3
+  real(dp),parameter,private :: gas_viscosity = 1.8e-5_dp   ! Pa.s
 
 contains
 
@@ -384,6 +391,74 @@ contains
     scale_factors_2d = 1.0_dp
 
   end subroutine scale_mesh
+
+!!!#############################################################################
+
+  subroutine update_resistance
+
+    ! Local variables
+    integer :: i,ne,ne2,np1,np2,nunit
+    real(dp) :: ett_resistance,gamma,le,rad,resistance,reynolds,sum,zeta
+    real(dp) :: tissue_resistance
+    character(len=60) :: sub_name
+
+    ! --------------------------------------------------------------------------
+
+    sub_name = 'update_resistance'
+    call enter_exit(sub_name,1)
+
+    elem_field(ne_t_resist,1:num_elems) = 0.0_dp
+
+    tissue_resistance = 0.0_dp  ! 0.35_dp * 98.0665_dp/1.0e6_dp 
+
+    do nunit = 1,num_units
+       ne = units(nunit)
+       elem_field(ne_t_resist,ne) = tissue_resistance * dble(elem_units_below(1))
+    enddo
+    
+    do ne = 1,num_elems
+       np1 = elem_nodes(1,ne)
+       np2 = elem_nodes(2,ne)
+       
+       le = elem_field(ne_length,ne)
+       rad = elem_field(ne_radius,ne)
+
+       ! element Poiseuille (laminar) resistance in units of Pa.s.mm-3   
+       resistance = 8.0_dp*GAS_VISCOSITY*elem_field(ne_length,ne)/ &
+            (PI*elem_field(ne_radius,ne)**4) !laminar resistance
+       
+       ! element turbulent resistance (flow in bifurcating tubes)
+       gamma = 0.357_dp !inspiration
+       if(elem_field(ne_Vdot,ne).lt.0.0_dp) gamma = 0.46_dp !expiration
+       
+       reynolds = abs(elem_field(ne_Vdot,ne)*2.0_dp*GAS_DENSITY/ &
+            (pi*elem_field(ne_radius,ne)*GAS_VISCOSITY))
+       zeta = MAX(1.0_dp,dsqrt(2.0_dp*elem_field(ne_radius,ne)* &
+            reynolds/elem_field(ne_length,ne))*gamma)
+       elem_field(ne_resist,ne) = resistance * zeta
+       elem_field(ne_t_resist,ne) = elem_field(ne_resist,ne) + &
+            elem_field(ne_t_resist,ne)
+
+    enddo !noelem
+    
+    do ne = num_elems,1,-1
+       sum = 0.0_dp
+       if(elem_cnct(1,0,ne).gt.0)then !not terminal
+          do i = 1,elem_cnct(1,0,ne) !for each possible daughter branch (max 2)
+             ne2 = elem_cnct(1,i,ne) !the daughter element number
+             ! line below is sum = sum + 1/R, where 1/R is multiplied by
+             !  2 if this is a symmetric child branch
+             sum = sum + dble(elem_symmetry(ne2))* &
+                  dble(elem_ordrs(no_type,ne2))/elem_field(ne_t_resist,ne2)
+          enddo
+          if(sum.gt.zero_tol) elem_field(ne_t_resist,ne) = &
+               elem_field(ne_t_resist,ne) + 1.0_dp/sum
+       endif
+    enddo
+
+    call enter_exit(sub_name,2)
+
+  end subroutine update_resistance
 
 !!!##################################################
   

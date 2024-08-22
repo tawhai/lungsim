@@ -1113,6 +1113,8 @@ contains
     !*define_node_geometry_2d:* Reads in an exnode file to define surface nodes
     !DEC$ ATTRIBUTES DLLEXPORT,ALIAS:"SO_DEFINE_NODE_GEOMETRY_2D" :: DEFINE_NODE_GEOMETRY_2D
 
+    use mesh_utilities,only: update_resistance
+
     character(len=*),intent(in) :: NODEFILE
     !     Local Variables
     integer :: i,ierror,index_location,np,np_global,num_versions,nv
@@ -1267,12 +1269,12 @@ contains
 
     character(len=*),intent(in) :: filename
     !     Local Variables
-    integer :: genm,i,ind(4),j,N,nbins(5),n_br,ne,ne0,ne1,ne2,ne_major,ne_minor, &
+    integer :: genm,i,ind(5),j,N,nbins(5),n_br,ne,ne0,ne1,ne2,ne_major,ne_minor, &
          ngen,nmax_gen(3),np0,np1,np2,np3,np4,np5,num_ddp,num_llp, n_segments, &
          ne_next,ntotal,sum_term
     integer,allocatable :: gencount(:),nbranches(:,:),n_terminal(:),ntally(:,:,:),ntotaln(:)
     real(dp) :: angle,average_term_gen,bins(5),mean_diam,norm_1(4),norm_2(4),ratios(4,3), &
-         r_sq(4,3),slope,v1(3),v2(3),xp0(3),xp1(3),xp2(3),xp3(3),xp4(3),xp5(3)
+         r_sq(4,3),slope,vol_vd,vol_total,v1(3),v2(3),xp0(3),xp1(3),xp2(3),xp3(3),xp4(3),xp5(3)
     real(dp),allocatable :: branches(:,:),diameters(:),means(:),mean_major(:),mean_minor(:), &
          stats(:,:),sd(:,:,:),sdt(:),sum_mean(:,:,:),x(:),yregress(:,:)
     logical :: add,colinear1,colinear2,writefile
@@ -1797,6 +1799,11 @@ contains
        write(10,'('' mean angle Dp 0.7+   = '',f7.3)') bins(5)
     endif
 
+    call volume_of_mesh(vol_total, vol_vd)
+    write(*,'('' Deadspace volume (mL)        = '',f7.3)') vol_vd * 1.0e-3_dp
+    !call update_resistance()
+    !write(*,'('' Total resistance (cmH2O/L.s) = '',f7.3)') elem_field(ne_t_resist,1)*1.0e+6_dp/98.0665_dp  !res (cmH2O/L.s)
+    
     deallocate(gencount)
     deallocate(n_terminal)
     deallocate(ntally)

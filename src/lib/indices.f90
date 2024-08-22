@@ -216,7 +216,7 @@ contains
     num_nj=2 !number of nodal fields
     nj_aw_press=2 !air pressure
     ! indices for elem_field
-    num_ne = 10 !number of element fields
+    num_ne = 13 !number of element fields
     ne_radius = 1 !radius of airway
     ne_length = 2 !length of airway
     ne_vol = 3 !volume
@@ -227,6 +227,9 @@ contains
     ne_dvdt = 8
     ne_vd_bel = 9
     ne_vol_bel = 10
+    ne_radius_in = 11
+    ne_radius_out = 12
+    ne_a_A = 13
     ! indices for unit_field
     num_nu=10
     nu_vol=1
