@@ -1,0 +1,5 @@
+
+#ifndef AETHER_MESH_TYPES_H
+#define AETHER_MESH_TYPES_H
+
+#endif /* AETHER_MESH_TYPES_H */
