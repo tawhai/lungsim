@@ -6,5 +6,3 @@
 %{
 #include "lymphatics.h"
 %}
-
-

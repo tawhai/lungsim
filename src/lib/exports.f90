@@ -30,7 +30,6 @@ module exports
        export_node_geometry_2d,&
        export_node_field, &
        export_elem_field, &
-       export_terminal_lymphatic, &
        export_terminal_solution, &
        export_terminal_perfusion,&
        export_terminal_ssgexch, &
@@ -154,11 +153,9 @@ contains
     write(20,'(''   q.Lagrange*q.Lagrange, #Scale factors= 9'')')
     write(20,'('' #Nodes=   9'')')
     write(20,'('' #Fields=1'')')
-    write(20,'('' 1) coordinates, coordinate, rectangular '' &
-         ''cartesian, #Components=3'')')
+    write(20,'('' 1) coordinates, coordinate, rectangular cartesian, #Components=3'')')
     do nj = 1,3
-       write(20,'(3x, a,''.  q.Lagrange*q.Lagrange, no modify,'' &
-            '' standard node based.'')') direction(nj)
+       write(20,'(3x, a,''.  q.Lagrange*q.Lagrange, no modify, standard node based.'')') direction(nj)
        write(20,'(5x,''#Nodes= 9'')')
        do ni = 1,9
           write(20,'(6x, i1,''.#Values=1'')') ni
@@ -800,7 +797,7 @@ contains
           !*** Write the field information
           VALUE_INDEX=1
           if(FIRST_NODE)THEN
-             write(10,'( '' #Fields=9'' )')
+             write(10,'( '' #Fields=20'' )')
              write(10,'('' 1) coordinates, coordinate, rectangular cartesian, #Components=3'')')
              do nj=1,3
                 if(nj.eq.1) write(10,'(2X,''x.  '')',advance="no")
@@ -848,20 +845,85 @@ contains
              write(10,'('' 9) osmotic_gradient, field, rectangular cartesian, #Components=1'')')
              write(10,'(2X,''1.  '')',advance="no")
              write(10,'(''Value index='',I2,'', #Derivatives='',I1)',advance="yes") VALUE_INDEX,0
+             
+             write(10,'('' 10) flow, field, rectangular cartesian, #Components=1'')')
+             write(10,'(2X,''1.  '')',advance="no")
+             write(10,'(''Value index='',I2,'', #Derivatives='',I1)',advance="yes") VALUE_INDEX,0
+             VALUE_INDEX=VALUE_INDEX+1
+             !Volume
+             write(10,'('' 11) volume, field, rectangular cartesian, #Components=1'')')
+             write(10,'(2X,''1.  '')',advance="no")
+             write(10,'(''Value index='',I2,'', #Derivatives='',I1)',advance="yes") VALUE_INDEX,0
+             VALUE_INDEX=VALUE_INDEX+1
+             write(10,'('' 12) compliance, field, rectangular cartesian, #Components=1'')')
+             write(10,'(2X,''1.  '')',advance="no")
+             write(10,'(''Value index='',I2,'', #Derivatives='',I1)',advance="yes") VALUE_INDEX,0
+             VALUE_INDEX=VALUE_INDEX+1
+             !Pleural pressure
+             write(10,'('' 13) Recoil pressure, field, rectangular cartesian, #Components=1'')')
+             write(10,'(2X,''1.  '')',advance="no")
+             write(10,'(''Value index='',I2,'', #Derivatives='',I1)',advance="yes") VALUE_INDEX,0
+             VALUE_INDEX=VALUE_INDEX+1
+             !Tidal volume
+             write(10,'('' 14) tidal_volume, field, rectangular cartesian, #Components=1'')')
+             write(10,'(2X,''1.  '')',advance="no")
+             write(10,'(''Value index='',I2,'', #Derivatives='',I1)',advance="yes") VALUE_INDEX,0
+             VALUE_INDEX=VALUE_INDEX+1
+             !Surfactant Concentration
+             write(10,'('' 15) surfactant_concentration, field, rectangular cartesian, #Components=1'')')
+             write(10,'(2X,''1.  '')',advance="no")
+             write(10,'(''Value index='',I2,'', #Derivatives='',I1)',advance="yes") VALUE_INDEX,0
+             VALUE_INDEX=VALUE_INDEX+1
+             !Surface Tension
+             write(10,'('' 16) surface_tension, field, rectangular cartesian, #Components=1'')')
+             write(10,'(2X,''1.  '')',advance="no")
+             write(10,'(''Value index='',I2,'', #Derivatives='',I1)',advance="yes") VALUE_INDEX,0
+             VALUE_INDEX=VALUE_INDEX+1
+             !Collapse Pressure
+             write(10,'('' 17) collapse_pressure, field, rectangular cartesian, #Components=1'')')
+             write(10,'(2X,''1.  '')',advance="no")
+             write(10,'(''Value index='',I2,'', #Derivatives='',I1)',advance="yes") VALUE_INDEX,0
+             VALUE_INDEX=VALUE_INDEX+1
+             !Acinus area
+             write(10,'('' 18) Acinus_area, field, rectangular cartesian, #Components=1'')')
+             write(10,'(2X,''1.  '')',advance="no")
+             write(10,'(''Value index='',I2,'', #Derivatives='',I1)',advance="yes") VALUE_INDEX,0
+             VALUE_INDEX=VALUE_INDEX+1
+             !maximum Pe at a unit
+             write(10,'('' 19) max_Pe, field, rectangular cartesian, #Components=1'')')
+             write(10,'(2X,''1.  '')',advance="no")
+             write(10,'(''Value index='',I2,'', #Derivatives='',I1)',advance="yes") VALUE_INDEX,0
+             VALUE_INDEX=VALUE_INDEX+1
+             !minimum Pe at a unit
+             write(10,'('' 20) min_Pe, field, rectangular cartesian, #Components=1'')')
+             write(10,'(2X,''1.  '')',advance="no")
+             write(10,'(''Value index='',I2,'', #Derivatives='',I1)',advance="yes") VALUE_INDEX,0
+
           endif !FIRST_NODE
           !***      write the node
           write(10,'(1X,''Node: '',I12)') np
           do nj=1,3
              write(10,'(2X,4(1X,F15.6))') (node_xyz(nj,np))      !Coordinates
           enddo !njj2
-          write(10,'(2X,4(1X,e15.6))') (unit_field(nu_av_flux,NOLIST))
-          write(10,'(2X,4(1X,e15.6))') (unit_field(nu_intsat,nolist))
-          write(10,'(2X,4(1X,e15.6))') (unit_field(nu_tt,nolist))
-          write(10,'(2X,4(1X,e15.6))') (unit_field(nu_blood_press,nolist))
-          write(10,'(2X,4(1X,e15.6))') (unit_field(nu_sa,nolist))
-          write(10,'(2X,4(1X,e15.6))') (unit_field(nu_lymphflow,nolist))
-          write(10,'(2X,4(1X,e15.6))') (unit_field (nu_alvflow,nolist))
-          write(10,'(2X,4(1X,e15.6))') (unit_field(nu_osmflux,nolist))
+          write(10,'(2X,4(1X,es15.6))') (unit_field(nu_av_flux,NOLIST))
+          write(10,'(2X,4(1X,es15.6))') (unit_field(nu_intsat,nolist))
+          write(10,'(2X,4(1X,es15.6))') (unit_field(nu_tt,nolist))
+          write(10,'(2X,4(1X,es15.6))') (unit_field(nu_blood_press,nolist))
+          write(10,'(2X,4(1X,es15.6))') (unit_field(nu_sa,nolist))
+          write(10,'(2X,4(1X,es15.6))') (unit_field(nu_lymphflow,nolist))
+          write(10,'(2X,4(1X,es15.6))') (unit_field (nu_alvflow,nolist))
+          write(10,'(2X,4(1X,es15.6))') (unit_field(nu_osmflux,nolist))
+          write(10,'(2X,4(1X,es16.8))') (unit_field(nu_vent,NOLIST)) !Ventilation
+          write(10,'(2X,4(1X,es16.8))') (unit_field(nu_vol,nolist))   !Volume (end expiration)
+          write(10,'(2X,4(1X,es16.8))') (unit_field(nu_comp,nolist))  !Compliance (end exp)
+          write(10,'(2X,4(1X,es16.8))') (unit_field(nu_pe,nolist))    !Recoil pressure
+          write(10,'(2X,4(1X,es16.8))') (unit_field(nu_vt,nolist))    !Tidal volume
+          write(10,'(2X,4(1X,es16.8))') (surf_concentration(nu_vol,nolist))    !surfactant concentration
+          write(10,'(2X,4(1X,es16.8))') (surface_tension(nu_vol,nolist))    !surface tension
+          write(10,'(2X,4(1X,es16.8))') (Pc(nu_vol,nolist))    !Collapse Pressure
+          write(10,'(2X,4(1X,es16.8))') (alv_area_current(nu_vol,nolist)) ! alveolar area
+          write(10,'(2X,4(1X,es16.8))') (unit_field(nu_Pe_max,nolist))    !maximum elastic recoil
+          write(10,'(2X,4(1X,es16.8))') (unit_field(nu_Pe_min,nolist))    !minimum elastic recoil
 
           FIRST_NODE=.FALSE.
           np_last=np
@@ -874,7 +936,6 @@ contains
 !
 !##############################################################################
 !
-
   subroutine export_terminal_solution(EXNODEFILE, name)
       !use ventilation,only: surf_concentration
 
@@ -910,8 +971,8 @@ contains
           !*** Write the field information
           VALUE_INDEX=1
           if(FIRST_NODE)THEN
-             write(12,'( '' #Fields=12'' )')
-             write(12,'('' 1) coordinates, coordinate, rectangular cartesian, #Components=3'')')
+             write(10,'( '' #Fields=5'' )')
+             write(10,'('' 1) coordinates, coordinate, rectangular cartesian, #Components=3'')')
              do nj=1,3
                 if(nj.eq.1) write(12,'(2X,''x.  '')',advance="no")
                 if(nj.eq.2) write(12,'(2X,''y.  '')',advance="no")
@@ -920,85 +981,32 @@ contains
                 VALUE_INDEX=VALUE_INDEX+1
              enddo
              !Ventilation (tidal volume/insp time)
-             write(12,'('' 2) flow, field, rectangular cartesian, #Components=1'')')
-             write(12,'(2X,''1.  '')',advance="no")
-             write(12,'(''Value index='',I2,'', #Derivatives='',I1)',advance="yes") VALUE_INDEX,0
-             VALUE_INDEX=VALUE_INDEX+1
-             !Volume
-             write(12,'('' 3) volume, field, rectangular cartesian, #Components=1'')')
-             write(12,'(2X,''1.  '')',advance="no")
-             write(12,'(''Value index='',I2,'', #Derivatives='',I1)',advance="yes") VALUE_INDEX,0
-             VALUE_INDEX=VALUE_INDEX+1
-             !!Pressure
-             !write(10,'('' 4) pressure, field, rectangular cartesian, #Components=1'')')
-             !write(10,'(2X,''1.  '')',advance="no")
-             !write(10,'(''Value index='',I1,'', #Derivatives='',I1)',advance="yes") VALUE_INDEX,0
-             !Compliance
-             write(12,'('' 4) compliance, field, rectangular cartesian, #Components=1'')')
-             write(12,'(2X,''1.  '')',advance="no")
-             write(12,'(''Value index='',I2,'', #Derivatives='',I1)',advance="yes") VALUE_INDEX,0
+             write(10,'('' 2) flow, field, rectangular cartesian, #Components=1'')')
+             write(10,'(2X,''1.  '')',advance="no")
+             write(10,'(''Value index='',I1,'', #Derivatives='',I1)',advance="yes") VALUE_INDEX,0
+             write(10,'('' 3) compliance, field, rectangular cartesian, #Components=1'')')
+             write(10,'(2X,''1.  '')',advance="no")
+             write(10,'(''Value index='',I1,'', #Derivatives='',I1)',advance="yes") VALUE_INDEX,0
              VALUE_INDEX=VALUE_INDEX+1
              !Pleural pressure
-             write(12,'('' 5) Recoil pressure, field, rectangular cartesian, #Components=1'')')
-             write(12,'(2X,''1.  '')',advance="no")
-             write(12,'(''Value index='',I2,'', #Derivatives='',I1)',advance="yes") VALUE_INDEX,0
+             write(10,'('' 4) pleural pressure, field, rectangular cartesian, #Components=1'')')
+             write(10,'(2X,''1.  '')',advance="no")
+             write(10,'(''Value index='',I1,'', #Derivatives='',I1)',advance="yes") VALUE_INDEX,0
              VALUE_INDEX=VALUE_INDEX+1
              !Tidal volume
-             write(12,'('' 6) tidal_volume, field, rectangular cartesian, #Components=1'')')
-             write(12,'(2X,''1.  '')',advance="no")
-             write(12,'(''Value index='',I2,'', #Derivatives='',I1)',advance="yes") VALUE_INDEX,0
-             VALUE_INDEX=VALUE_INDEX+1
-             !Surfactant Concentration
-             write(12,'('' 7) surfactant_concentration, field, rectangular cartesian, #Components=1'')')
-             write(12,'(2X,''1.  '')',advance="no")
-             write(12,'(''Value index='',I2,'', #Derivatives='',I1)',advance="yes") VALUE_INDEX,0
-             VALUE_INDEX=VALUE_INDEX+1
-             !Surface Tension
-             write(12,'('' 8) surface_tension, field, rectangular cartesian, #Components=1'')')
-             write(12,'(2X,''1.  '')',advance="no")
-             write(12,'(''Value index='',I2,'', #Derivatives='',I1)',advance="yes") VALUE_INDEX,0
-             VALUE_INDEX=VALUE_INDEX+1
-             !Collapse Pressure
-             write(12,'('' 9) collapse_pressure, field, rectangular cartesian, #Components=1'')')
-             write(12,'(2X,''1.  '')',advance="no")
-             write(12,'(''Value index='',I2,'', #Derivatives='',I1)',advance="yes") VALUE_INDEX,0
-             VALUE_INDEX=VALUE_INDEX+1
-             !Acinus area
-             write(12,'('' 10) Acinus_area, field, rectangular cartesian, #Components=1'')')
-             write(12,'(2X,''1.  '')',advance="no")
-             write(12,'(''Value index='',I2,'', #Derivatives='',I1)',advance="yes") VALUE_INDEX,0
-             VALUE_INDEX=VALUE_INDEX+1
-             !maximum Pe at a unit
-             write(12,'('' 11) max_Pe, field, rectangular cartesian, #Components=1'')')
-             write(12,'(2X,''1.  '')',advance="no")
-             write(12,'(''Value index='',I2,'', #Derivatives='',I1)',advance="yes") VALUE_INDEX,0
-             VALUE_INDEX=VALUE_INDEX+1
-             !minimum Pe at a unit
-             write(12,'('' 12) min_Pe, field, rectangular cartesian, #Components=1'')')
-             write(12,'(2X,''1.  '')',advance="no")
-             write(12,'(''Value index='',I2,'', #Derivatives='',I1)',advance="yes") VALUE_INDEX,0
-
+             write(10,'('' 5) tidal volume, field, rectangular cartesian, #Components=1'')')
+             write(10,'(2X,''1.  '')',advance="no")
+             write(10,'(''Value index='',I1,'', #Derivatives='',I1)',advance="yes") VALUE_INDEX,0
           endif !FIRST_NODE
           !***      write the node
           write(12,'(1X,''Node: '',I12)') np
           do nj=1,3
              write(12,'(2X,4(1X,ES16.8))') (node_xyz(nj,np))      !Coordinates F12.6
           enddo !njj2
-          write(12,'(2X,4(1X,ES16.8))') (unit_field(nu_vent,NOLIST)) !Ventilation
-          write(12,'(2X,4(1X,ES16.8))') (unit_field(nu_vol,nolist))   !Volume (end expiration)
-!          write(10,'(2X,4(1X,F12.6))') (unit_field(nu_press,nolist)) !Pressure
-          write(12,'(2X,4(1X,ES16.8))') (unit_field(nu_comp,nolist))  !Compliance (end exp)
-          write(12,'(2X,4(1X,ES16.8))') (unit_field(nu_pe,nolist))    !Recoil pressure
-          write(12,'(2X,4(1X,ES16.8))') (unit_field(nu_vt,nolist))    !Tidal volume
-          write(12,'(2X,4(1X,ES16.8))') (surf_concentration(nu_vol,nolist))    !surfactant concentration
-          write(12,'(2X,4(1X,ES16.8))') (surface_tension(nu_vol,nolist))    !surface tension
-          write(12,'(2X,4(1X,ES16.8))') (Pc(nu_vol,nolist))    !Collapse Pressure
-          write(12,'(2X,4(1X,ES16.8))') (alv_area_current(nu_vol,nolist)) ! alveolar area
-!          Write(10,'(2X,4(1X,F12.6))') WOBe
-!          Write(10,'(2X,4(1X,F12.6))') WOBr
-          write(12,'(2X,4(1X,ES16.8))') (unit_field(nu_Pe_max,nolist))    !maximum elastic recoil
-          write(12,'(2X,4(1X,ES16.8))') (unit_field(nu_Pe_min,nolist))    !minimum elastic recoil
-
+          write(10,'(2X,4(1X,F12.6))') (unit_field(nu_vent,NOLIST)) !Ventilation
+          write(10,'(2X,4(1X,F12.6))') (unit_field(nu_comp,nolist))  !Compliance (end exp)
+          write(10,'(2X,4(1X,F12.6))') (unit_field(nu_pe,nolist))    !Recoil pressure
+          write(10,'(2X,4(1X,F12.6))') (unit_field(nu_vt,nolist))    !Tidal volume
           FIRST_NODE=.FALSE.
           np_last=np
        enddo !nolist (np)
@@ -1089,17 +1097,26 @@ contains
 
   subroutine export_terminal_ssgexch(EXNODEFILE, name)
 
+    use gas_exchange,only : o2_content_from_po2
+    
 !!! Parameters
     character(len=MAX_FILENAME_LEN),intent(in) :: EXNODEFILE
     character(len=MAX_STRING_LEN),intent(in) :: name
 
 !!! Local Variables
     integer :: len_end,ne,nj,NOLIST,np,np_last,VALUE_INDEX
+    real(dp) :: content
     logical :: FIRST_NODE
+    character(len=MAX_FILENAME_LEN) :: writefile
 
     len_end=len_trim(name)
     if(num_units.GT.0) THEN
-       open(10, file=EXNODEFILE, status='replace')
+       if(index(EXNODEFILE, ".exnode")> 0) then !full filename is given
+          writefile = EXNODEFILE
+       else ! need to append the correct filename extension
+          writefile = trim(EXNODEFILE)//'.exnode'
+       endif
+       open(10, file=writefile, status='replace')
        !**     write the group name
        write(10,'( '' Group name: '',A)') name(:len_end)
        FIRST_NODE=.TRUE.
@@ -1112,7 +1129,7 @@ contains
           !*** Write the field information
           VALUE_INDEX=1
           if(FIRST_NODE)THEN
-             write(10,'( '' #Fields=5'' )')
+             write(10,'( '' #Fields=6'' )')
              write(10,'('' 1) coordinates, coordinate, rectangular cartesian, #Components=3'')')
              do nj=1,3
                 if(nj.eq.1) write(10,'(2X,''x.  '')',advance="no")
@@ -1140,16 +1157,23 @@ contains
              write(10,'('' 5) p_c_co2, field, rectangular cartesian, #Components=1'')')
              write(10,'(2X,''1.  '')',advance="no")
              write(10,'(''Value index='',I1,'', #Derivatives='',I1)',advance="yes") VALUE_INDEX,0
+              !c_o2
+             VALUE_INDEX=VALUE_INDEX+1
+             write(10,'('' 6) c_o2, field, rectangular cartesian, #Components=1'')')
+             write(10,'(2X,''1.  '')',advance="no")
+             write(10,'(''Value index='',I1,'', #Derivatives='',I1)',advance="yes") VALUE_INDEX,0
           endif !FIRST_NODE
           !***      write the node
           write(10,'(1X,''Node: '',I12)') np
           do nj=1,3
              write(10,'(2X,4(1X,F12.6))') (node_xyz(nj,np))      !Coordinates
           enddo !njj2
-           write(10,'(2X,4(1X,F12.6))') (unit_field(nu_Vdot0,NOLIST)) !ventilation
-           write(10,'(2X,4(1X,F12.6))') (unit_field(nu_perf,NOLIST)) !perfusion
-           write(10,'(2X,4(1X,F12.6))') (gasex_field(ng_p_cap_o2,NOLIST)) !end capillary o2
-           write(10,'(2X,4(1X,F12.6))') (gasex_field(ng_p_cap_co2,NOLIST)) !end capillary co2
+          write(10,'(2X,4(1X,F12.6))') (gasex%Vdot(NOLIST)) !ventilation
+          write(10,'(2X,4(1X,F12.6))') (gasex%Qdot(NOLIST)) !perfusion
+          write(10,'(2X,4(1X,F12.6))') (gasex%p_cap_o2(NOLIST)) !end capillary o2
+          write(10,'(2X,4(1X,F12.6))') (gasex%p_cap_co2(NOLIST)) !end capillary co2
+          content = o2_content_from_po2(gasex%p_cap_co2(NOLIST), gasex%p_cap_o2(NOLIST), 0.97_dp)
+          write(10,'(2X,4(1X,F12.6))') content ! content of o2
           FIRST_NODE=.FALSE.
           np_last=np
        enddo !nolist (np)

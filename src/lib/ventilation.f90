@@ -116,6 +116,7 @@ contains
     character :: expiration_type*(10) ! active (sine wave), passive, pressure
     logical :: CONTINUE,converged
 
+    character(len=MAX_FILENAME_LEN) :: lymphfile
     logical :: vent_converged
     logical :: lymph_converged
 !    real(dp), allocatable :: converged_vol(:)
@@ -237,8 +238,8 @@ contains
        refvol, RMaxMean, RMinMean, T_interval, volume_target, expiration_type)
     call read_params_main(num_brths, num_itns, dt, err_tol)
 
-
-    call lymphatic_transport('output/P2BRP268-H12816_terminal')
+    lymphfile = 'output/P2BRP268-H12816_terminal'
+    call lymphatic_transport(lymphfile)
     print*,'num_units',num_units
 !!! set dynamic pressure at entry. only changes for the 'pressure' option
     press_in_total = press_in
@@ -965,6 +966,12 @@ print*,'nunit',num_units
        unit_field(nu_Pe_min,nunit) = min(unit_field(nu_Pe_min,nunit), &
             unit_field(nu_pe,nunit))
 
+!!! original
+       !unit_field(nu_comp,nunit) = undef/unit_field(nu_comp,nunit) ! V/P
+       !!estimate an elastic recoil pressure for the unit
+       !unit_field(nu_pe,nunit) = cc/2.0_dp*(3.0_dp*a+b)*(lambda**2.0_dp &
+       !     -1.0_dp)*exp_term/lambda
+!!! end original
     enddo !nunit
 
     call enter_exit(sub_name,2)

@@ -4,7 +4,7 @@ module geometry_c
   use indices
   !use mesh_functions
   !use precision ! sets dp for precision
-  !use math_constants !pi  
+  !use math_constants !pi
 
 implicit none
   private
@@ -184,7 +184,7 @@ contains
     integer,intent(in) :: filename_len
     type(c_ptr), value, intent(in) :: filename
     character(len=MAX_FILENAME_LEN) :: filename_f
-    
+
     call strncpy(filename_f, filename, filename_len)
 
     call list_tree_statistics(filename_f)
@@ -194,34 +194,34 @@ contains
 !###################################################################################
 !
   subroutine internal_mesh_reorder_c() bind(C, name="internal_mesh_reorder_c")
-    
+
     use geometry,only: internal_mesh_reorder
     implicit none
 
     call internal_mesh_reorder()
 
   end subroutine internal_mesh_reorder_c
-  
+
 !
 !###################################################################################
 !
   subroutine make_data_grid_c(surface_elems_len, surface_elems, num_target, offset, spacing)&
        bind(C, name="make_data_grid_c")
-    
+
     use arrays,only: dp
     use iso_c_binding, only: c_ptr
     use utils_c, only: strncpy
     use other_consts, only: MAX_FILENAME_LEN, MAX_STRING_LEN
     use geometry, only: make_data_grid
     implicit none
-    
+
     integer,intent(in) :: surface_elems_len
     integer,intent(in) :: surface_elems(surface_elems_len)
     integer,intent(in) :: num_target
     real(dp),intent(in) :: offset, spacing
-    
+
     call make_data_grid(surface_elems, num_target, offset, spacing)
-    
+
   end subroutine make_data_grid_c
 
 !!!###################################################################################
@@ -236,7 +236,7 @@ contains
     call make_2d_vessel_from_1d(elemlist)
 
   end subroutine make_2d_vessel_from_1d_c
-  
+
 !
 !###################################################################################
 !
@@ -329,6 +329,26 @@ contains
     call define_rad_from_geom(order_system_f, control_param, start_from_f, start_rad, group_type_f, group_options_f)
 
   end subroutine define_rad_from_geom_c
+  !
+  !##################################################################################
+  !
+  !*define_rad_from_geom:* Defines vessel or airway radius based on their geometric structure
+    subroutine occlude_vessel_c(VESSEL_NUMBER, RATIO) bind(C, name="occlude_vessel_c")
+
+      !use iso_c_binding, only: c_ptr
+      !use utils_c, only: strncpy
+      !use other_consts, only: MAX_STRING_LEN
+      use arrays, only: dp
+      use geometry, only: occlude_vessel
+      implicit none
+
+      integer,intent(in) :: VESSEL_NUMBER
+      real(dp),intent(in) :: RATIO
+      !character(len=MAX_STRING_LEN) :: order_system_f, start_from_f, group_type_f, group_options_f
+
+      call occlude_vessel(VESSEL_NUMBER, RATIO)
+
+    end subroutine occlude_vessel_c
 !
 !###########################################################################
 !
@@ -353,7 +373,38 @@ contains
 
   end subroutine evaluate_ordering_c
 
+  !
+  !###################################################################################
+  !
+  !*scale_airways:* scales all radii by a given scale factor
+  subroutine scale_airways_c(scale_factor) bind(C, name="scale_airways_c")
+    use geometry, only: scale_airways
+    implicit none
+
+    real(dp),intent(in) :: scale_factor
+
+    call scale_airways(scale_factor)
+
+  end subroutine scale_airways_c
 !
+!###################################################################################
+!
+  !*set_initial_volume:* set the volume of elastic units, with gravitational gradient
+  ! and heterogeneity
+  subroutine set_initial_volume_c(Gdirn,COV,total_volume,Rmax,Rmin) &
+       bind(C, name="set_initial_volume_c")
+    use geometry, only: set_initial_volume
+    use precision, only: dp
+    implicit none
+
+    integer, intent(in) :: Gdirn
+    real(dp), intent(in) :: COV, total_volume, Rmax, Rmin
+    
+    call set_initial_volume(Gdirn,COV,total_volume,Rmax,Rmin)
+
+  end subroutine set_initial_volume_c
+
+!  
 !###################################################################################
 !
 !*volume_of_mesh:* calculates the volume of an airway mesh including conducting and respiratory airways
@@ -368,15 +419,30 @@ contains
 
   end subroutine volume_of_mesh_c
 
+!
+!###################################################################################
+!
+  function get_airway_deadspace_c() result(airway_deadspace) bind(C, name="get_airway_deadspace_c")
+    use precision, only: dp
+    use geometry, only: get_airway_deadspace
+    implicit none
 
+    real(dp) :: airway_deadspace
+
+    airway_deadspace = get_airway_deadspace()
+
+  end function get_airway_deadspace_c
+!
+!###################################################################################
+!
   function get_local_node_f_c(ndimension,np_global) result(get_local_node) bind(C, name="get_local_node_f_c")
     use arrays, only: dp
     use geometry, only: get_local_node_f
     implicit none
-    
+
     integer :: ndimension,np_global
     integer :: get_local_node
-    
+
     get_local_node=get_local_node_f(ndimension,np_global)
 
   end function get_local_node_f_c
@@ -443,5 +509,3 @@ contains
 !
 
 end module geometry_c
-
-
