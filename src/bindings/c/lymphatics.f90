@@ -8,18 +8,17 @@ contains
 !###################################################################################
 !
 !*alveolar_flux:*
-  subroutine alveolar_flux_c(dt, time, T_interval,Pe_unit_field_pre) bind(C, name="alveolar_flux_c")
+  subroutine alveolar_flux_c(dt, time, T_interval) bind(C, name="alveolar_flux_c")
     use lymphatics,only: alveolar_flux
     use arrays,only: dp
     implicit none
 
     real(dp), intent(in) :: dt,time, T_interval
-    real(dp), dimension(:,:), intent(in) :: Pe_unit_field_pre
 
 #if defined _WIN32 && defined __INTEL_COMPILER
-    call so_alveolar_flux(dt, time, T_interval,Pe_unit_field_pre)
+    call so_alveolar_flux(dt, time, T_interval)
 #else
-    call alveolar_flux(dt, time, T_interval,Pe_unit_field_pre)
+    call alveolar_flux(dt, time, T_interval)
 #endif
     
   end subroutine alveolar_flux_c

@@ -6,11 +6,12 @@ contains
 
   !###################################################################################
 !
-  subroutine import_capillary_terminal_c(FLOWFILE, filename_len) bind(C, name="import_capillary_terminal_c")
+  subroutine import_terminal_perfusion_c(FLOWFILE, filename_len) &
+       bind(C, name="import_terminal_perfusion_c")
 
     use iso_c_binding, only: c_ptr
     use utils_c, only: strncpy
-    use imports, only: import_capillary_terminal
+    use imports, only: import_terminal_perfusion
     use other_consts, only: MAX_STRING_LEN, MAX_FILENAME_LEN
     implicit none
     integer,intent(in) :: filename_len
@@ -19,9 +20,9 @@ contains
 
     call strncpy(filename_f, FLOWFILE, filename_len)
 
-    call import_capillary_terminal(filename_f)
+    call import_terminal_perfusion(filename_f)
 
-  end subroutine import_capillary_terminal_c
+  end subroutine import_terminal_perfusion_c
 
 !###################################################################################
 !

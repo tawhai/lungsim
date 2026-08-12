@@ -1,23 +1,18 @@
 
 #include "ventilation.h"
+#include <string.h>
 
-void evaluate_vent_c();
+void evaluate_vent_c(const char *filename, int *filename_len);
 void evaluate_uniform_flow_c();
-void two_unit_test_c();
 
-
-void evaluate_vent()
+void evaluate_vent(const char *filename)
 {
-  evaluate_vent_c();
+  int filename_len = strlen(filename);
+  evaluate_vent_c(filename, &filename_len);
 }
 
 void evaluate_uniform_flow()
 {
   evaluate_uniform_flow_c();
-}
-
-void two_unit_test()
-{
-  two_unit_test_c();
 }
 

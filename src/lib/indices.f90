@@ -382,7 +382,7 @@ contains
     num_nj=1
     nj_bv_press=1 !pressure in blood vessel
     ! indices for elem_field
-    num_ne=9
+    num_ne=10
     ne_radius=1 !strained average radius over whole element
     ne_radius_in=2 !strained radius into an element
     ne_radius_out=3 !strained radius out of an element
@@ -392,10 +392,13 @@ contains
     ne_Qdot=7 !flow in an element
     ne_resist=8 !resistance of a blood vessel
     ne_group=9!Groups vessels into arteries (field=0), capillaries (field=1) and veins(field=2)
+    ne_unit = 10
     !indices for units
-    num_nu=2
+    num_nu=4
     nu_perf=1
     nu_blood_press=2
+    nu_tt = 3
+    nu_sa = 4
     
     call enter_exit(sub_name,2)
   end subroutine perfusion_indices
